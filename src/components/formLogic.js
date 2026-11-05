@@ -74,6 +74,7 @@ export const formLogicFn = (t) => {
 
         return {
             input: '',
+            view: 'input',
             showAdvanced: false,
             advancedTab: 'rules',
             advancedSnapshot: null,
@@ -98,6 +99,7 @@ export const formLogicFn = (t) => {
             loading: false,
             generatedLinks: null,
             shortenedLinks: null,
+            copied: null,
             shortening: false,
             deleting: false,
             rotating: false,
@@ -162,6 +164,25 @@ export const formLogicFn = (t) => {
 
             get isLocalShortLink() { return this.localShortLink !== null; },
 
+            get hasResults() { return Boolean(this.generatedLinks || this.shortenedLinks); },
+
+            setView(view) {
+                if (view === 'results' && !this.hasResults) return;
+                this.view = view;
+                this.$nextTick(() => {
+                    const target = view === 'results' ? this.$refs.resultsHeading : this.$refs.inputForm.querySelector('textarea');
+                    target.focus({ preventScroll: true });
+                    this.$refs.workspace.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            },
+
+            resetResults() {
+                this.view = 'input';
+                this.generatedLinks = null;
+                this.shortenedLinks = null;
+                this.copied = null;
+            },
+
             readCustomRules() {
                 const input = typeof document === 'undefined' ? null : document.querySelector('input[name="customRules"]');
                 const editor = input?.closest('[x-data]');
@@ -222,6 +243,8 @@ export const formLogicFn = (t) => {
                     if (!await this.saveBaseConfig()) { this.advancedTab = 'baseConfig'; return; }
                 }
                 this.customRules = rules;
+                // Confirmed changes invalidate results so navigation cannot reuse outdated settings.
+                if (advancedKeys.some(key => JSON.stringify(this[key]) !== JSON.stringify(previous[key]))) this.resetResults();
                 for (const [field, key] of [['groupByCountry', 'groupByCountry'], ['includeAutoSelect', 'includeAutoSelect'], ['configType', 'configType']]) localStorage.setItem(key, String(this[field]));
                 this.updateConfigIdInUrl(this.currentConfigId || null);
                 this.closeAdvanced();
@@ -361,8 +384,7 @@ export const formLogicFn = (t) => {
             clearAll() {
                 if (confirm(window.APP_TRANSLATIONS.confirmClearAll)) {
                     this.input = '';
-                    this.generatedLinks = null;
-                    this.shortenedLinks = null;
+                    this.resetResults();
                     this.actionStatus = '';
 
                     // Also clear from localStorage
@@ -386,17 +408,13 @@ export const formLogicFn = (t) => {
                 this.loading = true;
                 this.shortenedLinks = null; // Reset shortened links when generating new links
                 try {
-                    // Get custom rules from the child component via the hidden input
-                    const customRulesInput = document.querySelector('input[name="customRules"]');
-                    const customRules = customRulesInput && customRulesInput.value ? JSON.parse(customRulesInput.value) : [];
-
                     // Construct URLs
                     const origin = window.location.origin;
                     const params = new URLSearchParams();
                     params.append('config', this.input);
                     params.append('ua', this.customUA);
                     params.append('selectedRules', JSON.stringify(this.selectedRules));
-                    params.append('customRules', JSON.stringify(customRules));
+                    params.append('customRules', JSON.stringify(this.customRules));
 
                     if (this.groupByCountry) params.append('group_by_country', 'true');
                     if (!this.includeAutoSelect) params.append('include_auto_select', 'false');
@@ -422,13 +440,7 @@ export const formLogicFn = (t) => {
                         surge: origin + '/surge?' + queryString
                     };
 
-                    // Scroll to results
-                    setTimeout(() => {
-                        const resultsDiv = document.querySelector('.mt-12');
-                        if (resultsDiv) {
-                            resultsDiv.scrollIntoView({ behavior: 'smooth' });
-                        }
-                    }, 100);
+                    this.setView('results');
 
                 } catch (error) {
                     console.error('Error generating links:', error);
@@ -483,8 +495,7 @@ export const formLogicFn = (t) => {
                         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url })
                     });
                     if (!response.ok) throw new Error('Unable to delete the short link');
-                    this.generatedLinks = null;
-                    this.shortenedLinks = null;
+                    this.resetResults();
                     this.lastActionInput = '';
                     this.input = '';
                     this.shortLinkState = 'idle';
@@ -517,6 +528,7 @@ export const formLogicFn = (t) => {
                     this.input = next;
                     this.shortLinkState = 'valid';
                     this.actionStatus = window.APP_TRANSLATIONS.rotateShortLinkSuccess;
+                    this.setView('results');
                 } catch { this.actionStatus = window.APP_TRANSLATIONS.rotateShortLinkFailed; }
                 finally { this.rotating = false; }
             },
@@ -542,8 +554,7 @@ export const formLogicFn = (t) => {
                 this.lastActionInput = null;
                 if (!preserve) {
                     this.actionStatus = '';
-                    this.generatedLinks = null;
-                    this.shortenedLinks = null;
+                    this.resetResults();
                 }
                 this.shortLinkState = this.isLocalShortLink ? 'checking' : 'idle';
                 if (!val?.trim()) return;

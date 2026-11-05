@@ -643,6 +643,8 @@ export const translations = {
 };
 
 Object.assign(translations["zh-CN"], {
+  "backToInput": "返回修改",
+  "viewResults": "查看结果",
   "confirmOptions": "确定",
   "cancelOptions": "取消",
   "advancedOptionsHelp": "设置仅在点击“确定”后生效；点击弹窗外部不会关闭。",
@@ -668,6 +670,8 @@ Object.assign(translations["zh-CN"], {
 });
 
 Object.assign(translations["en-US"], {
+  "backToInput": "Back to input",
+  "viewResults": "View results",
   "confirmOptions": "Confirm",
   "cancelOptions": "Cancel",
   "advancedOptionsHelp": "Changes apply only after confirmation. Clicking outside will not close this dialog.",
@@ -693,6 +697,8 @@ Object.assign(translations["en-US"], {
 });
 
 Object.assign(translations["fa"], {
+  "backToInput": "بازگشت به ورودی",
+  "viewResults": "مشاهده نتیجه",
   "confirmOptions": "تأیید",
   "cancelOptions": "انصراف",
   "advancedOptionsHelp": "تغییرات فقط پس از تأیید اعمال می‌شوند. کلیک بیرون پنجره آن را نمی‌بندد.",
@@ -718,6 +724,8 @@ Object.assign(translations["fa"], {
 });
 
 Object.assign(translations["ru"], {
+  "backToInput": "Вернуться к вводу",
+  "viewResults": "Посмотреть результат",
   "confirmOptions": "Подтвердить",
   "cancelOptions": "Отмена",
   "advancedOptionsHelp": "Изменения применяются после подтверждения. Щелчок вне окна его не закрывает.",

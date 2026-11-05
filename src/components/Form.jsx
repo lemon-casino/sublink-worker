@@ -60,8 +60,8 @@ export const Form = (props) => {
   `;
 
   return (
-    <div x-data="formData()" class="max-w-4xl mx-auto">
-      <form {...{'x-on:submit.prevent': 'submitForm'}} class="space-y-8">
+    <div x-data="formData()" x-ref="workspace" class="max-w-4xl mx-auto scroll-mt-6">
+      <form x-ref="inputForm" x-bind:hidden="view !== 'input'" {...{'x-on:submit.prevent': 'submitForm'}} class="space-y-8">
 
       {/* Input Section */}
       <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-all duration-300 hover:shadow-md group">
@@ -126,6 +126,7 @@ export const Form = (props) => {
           <span x-text="loading || deleting ? processingText : (isLocalShortLink ? window.APP_TRANSLATIONS.deleteShortLink : convertText)">{t('convert')}</span>
         </button>
         <button id="rotate-short-link" type="button" x-cloak x-show="isLocalShortLink" x-on:click="rotateShortLink()" x-bind:disabled="shortLinkState !== 'valid' || deleting || rotating || loading" class="flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-6 py-3.5 font-semibold text-white shadow-sm hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"><i class="fas" aria-hidden="true" x-bind:class="rotating ? 'fa-spinner fa-spin' : 'fa-sync-alt'"></i><span>{t('rotateShortLink')}</span></button>
+        <button id="results-forward" type="button" x-cloak x-show="hasResults" x-on:click="setView('results')" x-bind:disabled="loading || deleting || rotating" class="flex items-center justify-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-6 py-3.5 font-semibold text-primary-700 hover:bg-primary-100 disabled:opacity-50 dark:border-primary-800 dark:bg-primary-900/20 dark:text-primary-400 dark:hover:bg-primary-900/40">{t('viewResults')}<i class="fas fa-arrow-right" aria-hidden="true"></i></button>
         <button type="button" x-on:click="clearAll()" x-bind:disabled="loading || deleting || rotating" class="flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-6 py-3.5 font-semibold text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"><i class="fas fa-trash-alt" aria-hidden="true"></i>{t('clear')}</button>
       </div>
       </form>
@@ -133,16 +134,18 @@ export const Form = (props) => {
       <AdvancedOptions t={t} />
 
   {/* Results Section */ }
-  <div x-cloak x-show="generatedLinks || shortenedLinks" x-data="{ copied: null }" {...{'x-transition:enter': 'transition ease-out duration-500', 'x-transition:enter-start': 'opacity-0 transform translate-y-8', 'x-transition:enter-end': 'opacity-100 transform translate-y-0'}} class="mt-12">
-    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-8 transition-all duration-300 hover:shadow-md">
+  <div id="subscription-results" x-cloak hidden x-bind:hidden="view !== 'results' || !hasResults">
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-all duration-300 hover:shadow-md">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <h2 class="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+        <h2 x-ref="resultsHeading" tabindex="-1" class="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 flex items-center justify-center">
             <i class="fas fa-link text-sm"></i>
           </span>
           {t('subscriptionLinks')}
         </h2>
       </div>
+
+      <p role="status" aria-live="polite" x-show="actionStatus" x-text="actionStatus" class="mb-4 text-sm text-gray-700 dark:text-gray-300"></p>
 
       <div class="mt-6 space-y-4">
         {LINK_FIELDS.map((field) => (
@@ -177,13 +180,15 @@ export const Form = (props) => {
       </div>
 
       {/* Shortening Controls */}
-      <div class="mt-6" x-show="generatedLinks">
-        <div class="flex justify-center mt-4">
+        <div class="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+          <button id="results-back" type="button" x-on:click="setView('input')" x-bind:disabled="shortening" class="flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-6 py-3 font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"><i class="fas fa-arrow-left" aria-hidden="true"></i>{t('backToInput')}</button>
           <button
+            id="shorten-links"
             type="button"
+            x-show="generatedLinks"
             x-on:click="shortenedLinks ? shortenedLinks = null : shortenLinks()"
             x-bind:disabled="!shortenedLinks && shortening"
-            class="px-6 py-3 rounded-xl font-semibold transition-all duration-200 flex items-center gap-2 shadow-lg"
+            class="px-6 py-3 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg"
             x-bind:class="shortenedLinks
               ? 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm'
               : 'bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-700 hover:to-primary-600 text-white shadow-primary-500/30 hover:shadow-primary-500/40 disabled:opacity-50 disabled:cursor-not-allowed'"
@@ -197,7 +202,6 @@ export const Form = (props) => {
             ></span>
           </button>
         </div>
-      </div>
     </div>
   </div>
 

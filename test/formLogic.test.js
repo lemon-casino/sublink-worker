@@ -57,6 +57,7 @@ function createBrowserForm() {
   const data = factory(fakeWindow, storage, fetch, confirm);
   const watchers = new Map();
   data.$watch = (key, callback) => watchers.set(key, callback);
+  data.$nextTick = vi.fn();
   data.$refs = { advancedDialog: { showModal: vi.fn(), close: vi.fn() } };
   return { data, stored, storage, fetch, confirm, watchers, fakeWindow };
 }
@@ -82,12 +83,14 @@ describe('Private browser state and deletion', () => {
     data.shortLinkState = 'valid';
     data.shortenedLinks = { singbox: `https://converter.example/b/${code}` };
     data.generatedLinks = { singbox: 'PRIVATE_SOURCE' };
+    data.view = 'results';
     await data.deleteShortLink();
     expect(fetch).toHaveBeenCalledWith('/short-links/delete', expect.objectContaining({ method: 'POST', body: JSON.stringify({ url: `https://converter.example/c/${code}` }) }));
     expect(data.shortenedLinks).toBeNull();
     expect(data.generatedLinks).toBeNull();
     expect(data.actionStatus).toBe('Deleted');
     expect(data.input).toBe('');
+    expect(data.view).toBe('input');
     expect(data.deleting).toBe(false);
   });
 
@@ -206,5 +209,97 @@ describe('Short-link input modes', () => {
     expect(data.shortenedLinks.singbox).toBe(`https://converter.example/b/${code}`);
     expect(data.generatedLinks).toBeNull();
     expect(data.actionStatus).toBe('Replaced');
+    expect(data.view).toBe('results');
+    data.handleInputChange(data.input);
+    clearTimeout(data.parseDebounceTimer);
+    expect(data.hasResults).toBe(true);
+    data.setView('input');
+    data.setView('results');
+    expect(data.view).toBe('results');
+  });
+});
+
+describe('Input and result navigation', () => {
+  it('converts with confirmed settings and preserves source, settings, and results in both directions', async () => {
+    const { data, fetch } = createBrowserForm();
+    data.input = 'trojan://test@node.example:443';
+    data.customUA = 'test-client';
+    data.groupByCountry = true;
+    data.customRules = [{ name: 'Example', domain_suffix: ['example.com'] }];
+    data.currentConfigId = 'singbox_saved';
+    await data.submitForm();
+    expect(data.view).toBe('results');
+    const generated = data.generatedLinks;
+    const params = new URL(generated.clash).searchParams;
+    expect(params.get('config')).toBe(data.input);
+    expect(params.get('ua')).toBe('test-client');
+    expect(params.get('group_by_country')).toBe('true');
+    expect(params.get('configId')).toBe('singbox_saved');
+    expect(JSON.parse(params.get('customRules'))).toEqual(data.customRules);
+    data.setView('input');
+    expect(data.view).toBe('input');
+    expect(data.input).toBe('trojan://test@node.example:443');
+    expect(data.customUA).toBe('test-client');
+    data.setView('results');
+    expect(data.generatedLinks).toBe(generated);
+    expect(data.view).toBe('results');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps generated short links while navigating without creating another short link', async () => {
+    const { data, fetch } = createBrowserForm();
+    const code = 'C'.repeat(32);
+    data.input = 'trojan://test@node.example:443';
+    await data.submitForm();
+    fetch.mockResolvedValue(new Response(code));
+    await data.shortenLinks();
+    expect(data.view).toBe('results');
+    const shortened = data.shortenedLinks;
+    data.setView('input');
+    data.setView('results');
+    expect(data.shortenedLinks).toBe(shortened);
+    expect(data.shortenedLinks.clash).toBe(`https://converter.example/c/${code}`);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('prevents navigation to stale results after input changes or is cleared', async () => {
+    const { data } = createBrowserForm();
+    data.setView('results');
+    expect(data.view).toBe('input');
+    data.input = 'trojan://first@node.example:443';
+    await data.submitForm();
+    data.setView('input');
+    data.input = 'trojan://second@node.example:443';
+    data.handleInputChange(data.input);
+    clearTimeout(data.parseDebounceTimer);
+    data.setView('results');
+    expect(data.view).toBe('input');
+    expect(data.hasResults).toBe(false);
+    await data.submitForm();
+    data.clearAll();
+    expect(data.view).toBe('input');
+    expect(data.hasResults).toBe(false);
+  });
+
+  it('retains results on cancelled or unchanged options and invalidates them only after confirmed changes', async () => {
+    const { data } = createBrowserForm();
+    data.input = 'trojan://test@node.example:443';
+    await data.submitForm();
+    data.setView('input');
+    const generated = data.generatedLinks;
+    data.openAdvanced();
+    data.groupByCountry = true;
+    data.cancelAdvanced();
+    expect(data.generatedLinks).toBe(generated);
+    data.openAdvanced();
+    await data.confirmAdvanced();
+    expect(data.generatedLinks).toBe(generated);
+    data.openAdvanced();
+    data.groupByCountry = true;
+    await data.confirmAdvanced();
+    expect(data.hasResults).toBe(false);
+    expect(data.view).toBe('input');
+    await data.submitForm();
+    expect(new URL(data.generatedLinks.clash).searchParams.get('group_by_country')).toBe('true');
   });
 });
