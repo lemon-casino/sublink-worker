@@ -12,8 +12,10 @@ export const Layout = (props) => {
         <title>${title}</title>
         <meta name="description" content="Convert and optimize your subscription links easily" />
         <meta name="keywords" content="${APP_KEYWORDS}" />
-        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-        <link href="/assets/app.css" rel="stylesheet" />
+        <link rel="icon" type="image/png" href="/favicon.png?v=lemon-convert" />
+        <link rel="alternate icon" type="image/x-icon" href="/favicon.ico?v=lemon-convert" />
+        <link rel="apple-touch-icon" href="/favicon.png?v=lemon-convert" />
+        <link href="/assets/app.css?v=lemon-convert" rel="stylesheet" />
         <link href="/assets/fontawesome/css/all.min.css" rel="stylesheet" />
         <script src="/assets/js-yaml.min.js"></script>
         <script defer src="/assets/alpine.min.js" onerror="window.__alpineFailed=true"></script>

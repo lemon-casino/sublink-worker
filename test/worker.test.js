@@ -23,7 +23,22 @@ describe('Worker', () => {
         expect(res.status).toBe(200);
         expect(res.headers.get('content-type')).toContain('text/html');
         const text = await res.text();
-        expect(text).toContain('Sublink Worker');
+        expect(text).toContain('Lemon Convert');
+        expect(text).not.toContain('Sublink Worker');
+        expect(text).toContain('href="/favicon.png?v=lemon-convert"');
+    });
+
+    it.each(['png', 'ico'])('serves the %s site icon through the runtime asset adapter', async (format) => {
+        const contentType = format === 'png' ? 'image/png' : 'image/x-icon';
+        const icon = new Uint8Array([0, 1, 2, 3]);
+        const assetFetcher = vi.fn(async () => new Response(icon, { headers: { 'Content-Type': contentType } }));
+        const app = createTestApp({ assetFetcher });
+        const url = `http://localhost/favicon.${format}?v=lemon-convert`;
+        const res = await app.request(url);
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toBe(contentType);
+        expect(new Uint8Array(await res.arrayBuffer())).toEqual(icon);
+        expect(assetFetcher.mock.calls[0][0].url).toBe(url);
     });
 
     it('GET /singbox returns JSON', async () => {

@@ -169,11 +169,12 @@ export const formLogicFn = (t) => {
             setView(view) {
                 if (view === 'results' && !this.hasResults) return;
                 this.view = view;
-                this.$nextTick(() => {
+                // Finish applying inert before moving focus into the newly visible pane.
+                this.$nextTick(() => requestAnimationFrame(() => {
+                    if (this.view !== view) return;
                     const target = view === 'results' ? this.$refs.resultsHeading : this.$refs.inputForm.querySelector('textarea');
                     target.focus({ preventScroll: true });
-                    this.$refs.workspace.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                });
+                }));
             },
 
             resetResults() {

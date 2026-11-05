@@ -461,7 +461,7 @@ export function createApp(bindings = {}) {
 
     app.get('/assets/*', c => runtime.assetFetcher ? runtime.assetFetcher(c.req.raw) : c.notFound());
 
-    app.get('/favicon.ico', async (c) => {
+    app.on('GET', ['/favicon.ico', '/favicon.png'], async (c) => {
         if (!runtime.assetFetcher) {
             return c.notFound();
         }
