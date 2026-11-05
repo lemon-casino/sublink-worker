@@ -17,7 +17,8 @@ export class ConfigStorageService {
 
     async getConfigById(configId) {
         const kv = this.ensureKv();
-        const stored = await kv.get(configId);
+        if (typeof configId !== 'string' || !/^(singbox|clash|surge)_[A-Za-z0-9]{1,128}$/.test(configId)) return null;
+        const stored = await kv.get(`config:${configId}`) ?? await kv.get(configId);
         if (!stored) return null;
         try {
             return JSON.parse(stored);
@@ -27,12 +28,12 @@ export class ConfigStorageService {
     }
 
     async saveConfig(type, content) {
-        if (!type) {
-            throw new InvalidPayloadError('Missing config type');
+        if (!['singbox', 'clash', 'surge'].includes(type)) {
+            throw new InvalidPayloadError('Unsupported config type');
         }
 
         const kv = this.ensureKv();
-        const configId = `${type}_${generateWebPath(8)}`;
+        const configId = `${type}_${generateWebPath()}`;
         const configString = this.serializeConfig(type, content);
 
         // Validate string is JSON before storing
@@ -40,7 +41,7 @@ export class ConfigStorageService {
 
         const ttlSeconds = this.options.configTtlSeconds;
         const putOptions = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;
-        await kv.put(configId, configString, putOptions);
+        await kv.put(`config:${configId}`, configString, putOptions);
         return configId;
     }
 

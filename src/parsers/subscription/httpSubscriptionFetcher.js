@@ -33,7 +33,7 @@ function decodeUriComponentIfNeeded(text) {
     try {
         return decodeURIComponent(trimmed).trim();
     } catch (urlError) {
-        console.warn('Failed to URL decode the text:', urlError);
+        console.warn('Unable to URL decode subscription content');
         return trimmed;
     }
 }
@@ -123,26 +123,8 @@ function detectFormat(content) {
  * @returns {Promise<object|string[]|null>} - Parsed subscription content
  */
 export async function fetchSubscription(url, userAgent) {
-    try {
-        const headers = new Headers();
-        if (userAgent) {
-            headers.set('User-Agent', userAgent);
-        }
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: headers
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const text = await response.text();
-        const decodedText = decodeContent(text);
-
-        return parseSubscriptionContent(decodedText);
-    } catch (error) {
-        console.error('Error fetching or parsing HTTP(S) content:', error);
-        return null;
-    }
+    const subscription = await fetchSubscriptionWithFormat(url, userAgent);
+    return subscription ? parseSubscriptionContent(subscription.content) : null;
 }
 
 /**
@@ -153,18 +135,21 @@ export async function fetchSubscription(url, userAgent) {
  */
 export async function fetchSubscriptionWithFormat(url, userAgent) {
     try {
+        const parsed = new URL(url);
+        if (!['http:', 'https:'].includes(parsed.protocol)) return null;
         const headers = new Headers();
         if (userAgent) {
             headers.set('User-Agent', userAgent);
         }
         const response = await fetch(url, {
             method: 'GET',
-            headers: headers
+            headers: headers,
+            signal: AbortSignal.timeout(15_000)
         });
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const text = await response.text();
+        const text = await readSubscriptionText(response);
         const content = decodeContent(text);
         const format = detectFormat(content);
 
@@ -172,7 +157,39 @@ export async function fetchSubscriptionWithFormat(url, userAgent) {
 
         return { content, format, url, subscriptionUserinfo };
     } catch (error) {
-        console.error('Error fetching subscription:', error);
+        console.error('Unable to fetch or parse a subscription');
         return null;
+    }
+}
+
+async function readSubscriptionText(response) {
+    const maxBytes = 2 * 1024 * 1024;
+    if (Number(response.headers.get('content-length')) > maxBytes) {
+        await response.body?.cancel();
+        throw new Error('Subscription response too large');
+    }
+    if (!response.body?.getReader) {
+        const text = await response.text();
+        if (new TextEncoder().encode(text).length > maxBytes) throw new Error('Subscription response too large');
+        return text;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let size = 0;
+    let result = '';
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            size += value.byteLength;
+            if (size > maxBytes) {
+                await reader.cancel();
+                throw new Error('Subscription response too large');
+            }
+            result += decoder.decode(value, { stream: true });
+        }
+        return result + decoder.decode();
+    } finally {
+        reader.releaseLock();
     }
 }

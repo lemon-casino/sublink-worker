@@ -2,6 +2,7 @@ import { ProxyParser } from '../parsers/index.js';
 import { createStableProviderName, deepCopy, tryDecodeSubscriptionLines, decodeBase64 } from '../utils.js';
 import { createTranslator } from '../i18n/index.js';
 import { generateRules, getOutbounds, PREDEFINED_RULE_SETS } from '../config/index.js';
+import { InvalidConfigError } from '../services/errors.js';
 
 export class BaseConfigBuilder {
     constructor(inputString, baseConfig, lang, userAgent, groupByCountry = false, includeAutoSelect = true) {
@@ -22,6 +23,11 @@ export class BaseConfigBuilder {
 
     async build() {
         const customItems = await this.parseCustomItems();
+        if (this.allowRemoteProviders === false) await this.inlineRemoteProviders(customItems);
+        if (this.disableClashUI) {
+            for (const key of ['external-controller', 'external-controller-tls', 'external-controller-unix', 'external-controller-pipe', 'external-ui', 'external-ui-url', 'external-ui-name', 'secret']) delete this.config[key];
+            if (this.config.experimental) delete this.config.experimental.clash_api;
+        }
         this.addCustomItems(customItems);
         this.addSelectors();
         return this.formatConfig();
@@ -30,6 +36,9 @@ export class BaseConfigBuilder {
     async parseCustomItems() {
         const input = this.inputString || '';
         const parsedItems = [];
+        if (input.length > 512 * 1024 || input.split('\n').filter(line => /^https?:\/\//i.test(line.trim())).length > 16) {
+            throw new InvalidConfigError('Subscription input exceeds the size or URL limit');
+        }
 
         // Import the content parser for direct input parsing
         const { parseSubscriptionContent } = await import('../parsers/subscription/subscriptionContentParser.js');
@@ -101,7 +110,7 @@ export class BaseConfigBuilder {
                             }
 
                             // If format is compatible with target client, use as provider
-                            if (this.isCompatibleProviderFormat(format)) {
+                            if (this.allowRemoteProviders !== false && this.isCompatibleProviderFormat(format)) {
                                 this.providerUrls.push(originalUrl);
                                 // Content is already fetched; keep node names so country
                                 // groups can be built over provider members later.
@@ -139,7 +148,7 @@ export class BaseConfigBuilder {
                             }
                         }
                     } catch (error) {
-                        console.error('Error processing HTTP subscription:', error);
+                        console.error('Unable to process an HTTP subscription');
                     }
                     continue;
                 }
@@ -178,6 +187,38 @@ export class BaseConfigBuilder {
         }
 
         return parsedItems;
+    }
+
+    async inlineRemoteProviders(items) {
+        const providers = this.config['proxy-providers'];
+        if (!providers || typeof providers !== 'object') return;
+        const entries = Object.entries(providers);
+        if (entries.length > 16) throw new InvalidConfigError('Too many proxy providers');
+        const { fetchSubscriptionWithFormat } = await import('../parsers/subscription/httpSubscriptionFetcher.js');
+        const { parseSubscriptionContent } = await import('../parsers/subscription/subscriptionContentParser.js');
+        const { convertYamlProxyToObject } = await import('../parsers/convertYamlProxyToObject.js');
+        const members = new Map();
+        for (const [name, provider] of entries) {
+            let proxies;
+            if (provider?.type === 'inline' && Array.isArray(provider.payload)) {
+                proxies = provider.payload.map(convertYamlProxyToObject).filter(Boolean);
+            } else if (provider?.type === 'http' && typeof provider.url === 'string') {
+                const result = await fetchSubscriptionWithFormat(provider.url, this.userAgent);
+                proxies = result ? parseSubscriptionContent(result.content)?.proxies : null;
+            }
+            if (!Array.isArray(proxies) || !proxies.length) {
+                throw new InvalidConfigError('Unable to inline a proxy provider; use a subscription containing nodes');
+            }
+            items.push(...proxies);
+            members.set(name, proxies.map(proxy => proxy.tag));
+        }
+        // Provider URLs contain source credentials; only inline nodes may reach a client.
+        for (const group of [...(this.config['proxy-groups'] || []), ...(this.pendingUserProxyGroups || [])]) {
+            if (!Array.isArray(group.use)) continue;
+            group.proxies = [...new Set([...(group.proxies || []), ...group.use.flatMap(name => members.get(name) || [])])];
+            delete group.use;
+        }
+        delete this.config['proxy-providers'];
     }
 
     /**

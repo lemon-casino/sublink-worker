@@ -7,7 +7,7 @@ export const translations = {
     enableClashUI: '启用 Clash API',
     enableClashUITip: '在 SingBox 配置中启用 Clash API (支持 Dashboard 面板)，默认端口 9090',
     externalController: '外部控制端口',
-    externalControllerPlaceholder: '默认 0.0.0.0:9090',
+    externalControllerPlaceholder: '默认 127.0.0.1:9090',
     externalUiDownloadUrl: 'Clash UI 下载地址',
     externalUiDownloadUrlPlaceholder: '默认 zashboard 仓库压缩包地址',
     missingInput: '缺少输入参数',
@@ -170,7 +170,7 @@ export const translations = {
     enableClashUI: 'Enable Clash API',
     enableClashUITip: 'Enable Clash API in SingBox config (Support Dashboard), default port 9090',
     externalController: 'External Controller',
-    externalControllerPlaceholder: 'Default 0.0.0.0:9090',
+    externalControllerPlaceholder: 'Default 127.0.0.1:9090',
     externalUiDownloadUrl: 'External UI Download URL',
     externalUiDownloadUrlPlaceholder: 'Default zashboard archive URL',
     missingInput: 'Missing input parameter',
@@ -641,6 +641,42 @@ export const translations = {
     later: 'Позже'
   }
 };
+
+Object.assign(translations["zh-CN"], {
+  "deleteShortLink": "删除短链",
+  "deleteShortLinkHelp": "输入本站生成的短链。删除后，同一码的所有客户端链接都会失效，无法恢复。",
+  "deleteShortLinkPlaceholder": "粘贴需要删除的完整短链",
+  "deleteShortLinkConfirm": "确认永久删除这个短链？所有客户端格式将一起失效，已下载的节点不会被撤回。",
+  "deleteShortLinkSuccess": "短链已删除，后续访问已禁用。可以重新生成新的短链。",
+  "deleteShortLinkFailed": "删除失败，请检查链接是否属于本站、是否存在，或稍后重试。"
+});
+
+Object.assign(translations["en-US"], {
+  "deleteShortLink": "Delete short link",
+  "deleteShortLinkHelp": "Enter a short link created on this site. Deletion permanently disables every client format using the same code.",
+  "deleteShortLinkPlaceholder": "Paste the complete short link",
+  "deleteShortLinkConfirm": "Permanently delete this short link for all client formats? Previously downloaded nodes cannot be recalled.",
+  "deleteShortLinkSuccess": "Short link deleted and disabled. You can generate a new link.",
+  "deleteShortLinkFailed": "Deletion failed. Check that the link exists on this site, or try again later."
+});
+
+Object.assign(translations["fa"], {
+  "deleteShortLink": "حذف پیوند کوتاه",
+  "deleteShortLinkHelp": "پیوند کوتاه این سایت را وارد کنید. حذف آن همه قالب‌های دارای همان کد را برای همیشه غیرفعال می‌کند.",
+  "deleteShortLinkPlaceholder": "پیوند کوتاه کامل را وارد کنید",
+  "deleteShortLinkConfirm": "این پیوند برای همه قالب‌ها حذف شود؟ گره‌های دانلودشده قابل بازپس‌گیری نیستند.",
+  "deleteShortLinkSuccess": "پیوند حذف و غیرفعال شد. می‌توانید پیوند تازه بسازید.",
+  "deleteShortLinkFailed": "حذف ناموفق بود. پیوند را بررسی کرده و دوباره تلاش کنید."
+});
+
+Object.assign(translations["ru"], {
+  "deleteShortLink": "Удалить короткую ссылку",
+  "deleteShortLinkHelp": "Введите ссылку этого сайта. Удаление навсегда отключит все форматы с тем же кодом.",
+  "deleteShortLinkPlaceholder": "Вставьте полную короткую ссылку",
+  "deleteShortLinkConfirm": "Удалить ссылку для всех форматов? Уже скачанные узлы отозвать нельзя.",
+  "deleteShortLinkSuccess": "Ссылка удалена и отключена. Можно создать новую.",
+  "deleteShortLinkFailed": "Не удалось удалить ссылку. Проверьте ссылку или повторите позже."
+});
 
 export function resolveLanguage(lang) {
   if (translations[lang]) {

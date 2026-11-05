@@ -113,18 +113,22 @@ proxy-groups:
         expect(text).toContain('requires at least one proxy or provider reference');
     });
 
-    it('GET /shorten-v2 returns short code', async () => {
-        const url = 'http://example.com';
+    it('POST /shorten-v2 returns a cryptographic short code', async () => {
+        const url = 'http://localhost/clash?config=trojan%3A%2F%2Ftest%40node.invalid%3A443';
         const kvMock = {
             put: vi.fn(async () => {}),
             get: vi.fn(async () => null),
             delete: vi.fn(async () => {})
         };
         const app = createTestApp({ kv: kvMock });
-        const res = await app.request(`http://localhost/shorten-v2?url=${encodeURIComponent(url)}`);
+        const res = await app.request('http://localhost/shorten-v2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
         expect(res.status).toBe(200);
         const text = await res.text();
-        expect(text).toBeTruthy();
+        expect(text).toMatch(/^[A-Za-z0-9]{32}$/);
         expect(kvMock.put).toHaveBeenCalled();
     });
 });

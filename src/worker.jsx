@@ -1,5 +1,6 @@
 import { createApp } from './app/createApp.jsx';
 import { createCloudflareRuntime } from './runtime/cloudflare.js';
+export { ShortLinkRevocations } from './services/shortLinkRevocations.js';
 
 let honoApp;
 

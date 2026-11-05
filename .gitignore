@@ -170,6 +170,7 @@ dist
 
 .dev.vars
 .wrangler/
+public/assets/
 
 .editorconfig
 .prettierrc

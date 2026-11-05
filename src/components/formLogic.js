@@ -103,7 +103,9 @@ export const formLogicFn = (t) => {
             generatedLinks: null,
             shortenedLinks: null,
             shortening: false,
-            customShortCode: '',
+            deleteUrl: '',
+            deleting: false,
+            deleteStatus: '',
             parsingUrl: false,
             parseDebounceTimer: null,
             // These will be populated from window.APP_TRANSLATIONS
@@ -127,18 +129,14 @@ export const formLogicFn = (t) => {
                     this.configSaveFailedText = window.APP_TRANSLATIONS.configSaveFailed;
                 }
 
-                // Load saved data
-                this.input = localStorage.getItem('inputTextarea') || '';
+                // Remove secrets persisted by earlier versions before initializing the form.
+                for (const key of ['inputTextarea', 'configEditor', 'customShortCode', 'externalController', 'externalUiDownloadUrl', 'userAgent', 'enableClashUI']) localStorage.removeItem(key);
+
+                // Load saved preferences
                 this.showAdvanced = localStorage.getItem('advancedToggle') === 'true';
                 this.groupByCountry = localStorage.getItem('groupByCountry') === 'true';
                 this.includeAutoSelect = localStorage.getItem('includeAutoSelect') !== 'false';
-                this.enableClashUI = localStorage.getItem('enableClashUI') === 'true';
-                this.externalController = localStorage.getItem('externalController') || '';
-                this.externalUiDownloadUrl = localStorage.getItem('externalUiDownloadUrl') || '';
-                this.customUA = localStorage.getItem('userAgent') || '';
-                this.configEditor = localStorage.getItem('configEditor') || '';
                 this.configType = localStorage.getItem('configType') || 'singbox';
-                this.customShortCode = localStorage.getItem('customShortCode') || '';
                 const initialUrlParams = new URLSearchParams(window.location.search);
                 this.currentConfigId = initialUrlParams.get('configId') || '';
 
@@ -157,25 +155,18 @@ export const formLogicFn = (t) => {
 
                 // Watchers to save state
                 this.$watch('input', val => {
-                    localStorage.setItem('inputTextarea', val);
                     this.handleInputChange(val);
                 });
                 this.$watch('showAdvanced', val => localStorage.setItem('advancedToggle', val));
                 this.$watch('groupByCountry', val => localStorage.setItem('groupByCountry', val));
                 this.$watch('includeAutoSelect', val => localStorage.setItem('includeAutoSelect', val));
-                this.$watch('enableClashUI', val => localStorage.setItem('enableClashUI', val));
-                this.$watch('externalController', val => localStorage.setItem('externalController', val));
-                this.$watch('externalUiDownloadUrl', val => localStorage.setItem('externalUiDownloadUrl', val));
-                this.$watch('customUA', val => localStorage.setItem('userAgent', val));
                 this.$watch('configEditor', val => {
-                    localStorage.setItem('configEditor', val);
                     this.resetConfigValidation();
                 });
                 this.$watch('configType', val => {
                     localStorage.setItem('configType', val);
                     this.resetConfigValidation();
                 });
-                this.$watch('customShortCode', val => localStorage.setItem('customShortCode', val));
                 this.$watch('accordionSections', val => localStorage.setItem('accordionSections', JSON.stringify(val)), { deep: true });
             },
 
@@ -346,7 +337,7 @@ export const formLogicFn = (t) => {
                     this.input = '';
                     this.generatedLinks = null;
                     this.shortenedLinks = null;
-                    this.customShortCode = '';
+
                     // Also clear from localStorage
                     localStorage.removeItem('customShortCode');
                 }
@@ -432,48 +423,15 @@ export const formLogicFn = (t) => {
                     const origin = window.location.origin;
                     const shortened = {};
 
-                    // Use custom short code if provided, otherwise let backend generate it once
-                    let shortCode = this.customShortCode.trim();
-                    let isFirstRequest = true;
-
-                    // Shorten each link type
-                    for (const [type, url] of Object.entries(this.generatedLinks)) {
-                        try {
-                            let apiUrl = `${origin}/shorten-v2?url=${encodeURIComponent(url)}`;
-
-                            // For the first request, either use custom code or let backend generate
-                            // For subsequent requests, use the code from first request
-                            if (shortCode) {
-                                apiUrl += `&shortCode=${encodeURIComponent(shortCode)}`;
-                            }
-
-                            const response = await fetch(apiUrl);
-                            if (!response.ok) {
-                                throw new Error(`Failed to shorten ${type} link`);
-                            }
-                            const returnedCode = await response.text();
-
-                            // If this is the first request and no custom code was provided,
-                            // use the backend-generated code for all subsequent requests
-                            if (isFirstRequest && !shortCode) {
-                                shortCode = returnedCode;
-                            }
-                            isFirstRequest = false;
-
-                            // Map types to their corresponding path prefixes
-                            const prefixMap = {
-                                xray: 'x',
-                                singbox: 'b',
-                                clash: 'c',
-                                surge: 's'
-                            };
-
-                            shortened[type] = `${origin}/${prefixMap[type]}/${returnedCode}`;
-                        } catch (error) {
-                            console.error(`Error shortening ${type} link:`, error);
-                            throw error;
-                        }
-                    }
+                    const response = await fetch('/shorten-v2', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: Object.values(this.generatedLinks)[0] })
+                    });
+                    if (!response.ok) throw new Error('Unable to create a short link');
+                    const code = (await response.text()).trim();
+                    const prefixes = { xray: 'x', singbox: 'b', clash: 'c', surge: 's' };
+                    for (const [type, prefix] of Object.entries(prefixes)) shortened[type] = origin + '/' + prefix + '/' + code;
 
                     this.shortenedLinks = shortened;
                 } catch (error) {
@@ -481,6 +439,33 @@ export const formLogicFn = (t) => {
                     alert(window.APP_TRANSLATIONS.shortenFailed);
                 } finally {
                     this.shortening = false;
+                }
+            },
+
+            async deleteShortLink() {
+                this.deleteStatus = '';
+                if (!this.deleteUrl.trim() || !confirm(window.APP_TRANSLATIONS.deleteShortLinkConfirm)) return;
+                this.deleting = true;
+                try {
+                    const deletedUrl = new URL(this.deleteUrl.trim());
+                    if (deletedUrl.origin !== window.location.origin || !/^\/[bcxs]\/[A-Za-z0-9_-]{1,128}$/.test(deletedUrl.pathname)) throw new Error('Invalid short URL');
+                    const response = await fetch('/short-links/delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: deletedUrl.href })
+                    });
+                    if (!response.ok) throw new Error('Unable to delete the short link');
+                    const code = deletedUrl.pathname.split('/')[2];
+                    if (this.shortenedLinks && Object.values(this.shortenedLinks).some(link => new URL(link).pathname.split('/')[2] === code)) {
+                        this.shortenedLinks = null;
+                        this.generatedLinks = null;
+                    }
+                    this.deleteUrl = '';
+                    this.deleteStatus = window.APP_TRANSLATIONS.deleteShortLinkSuccess;
+                } catch {
+                    this.deleteStatus = window.APP_TRANSLATIONS.deleteShortLinkFailed;
+                } finally {
+                    this.deleting = false;
                 }
             },
 
@@ -511,12 +496,6 @@ export const formLogicFn = (t) => {
 
                 try {
                     const url = new URL(text);
-                    // Check if it matches our short link pattern: /[bcxs]/[code]
-                    const pathMatch = url.pathname.match(/^\/([bcxs])\/([a-zA-Z0-9_-]+)$/);
-                    if (pathMatch) {
-                        return true;
-                    }
-
                     // Check if it's a full subscription URL with query params
                     const fullMatch = url.pathname.match(/^\/(singbox|clash|xray|surge)$/);
                     if (fullMatch && url.search) {
@@ -543,26 +522,6 @@ export const formLogicFn = (t) => {
                         urlToParse = new URL(text);
                     } catch {
                         return;
-                    }
-
-                    // Check if it's a short link
-                    const shortMatch = urlToParse.pathname.match(/^\/([bcxs])\/([a-zA-Z0-9_-]+)$/);
-
-                    if (shortMatch) {
-                        // It's a short link, resolve it first
-                        const response = await fetch(`/resolve?url=${encodeURIComponent(text)}`);
-                        if (!response.ok) {
-                            console.warn('Failed to resolve short URL');
-                            return;
-                        }
-
-                        const data = await response.json();
-                        if (!data.originalUrl) {
-                            console.warn('No original URL returned');
-                            return;
-                        }
-
-                        urlToParse = new URL(data.originalUrl);
                     }
 
                     // Now parse the full URL and populate form

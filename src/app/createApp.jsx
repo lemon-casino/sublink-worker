@@ -1,6 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource hono/jsx */
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { Layout } from '../components/Layout.jsx';
 import { Navbar } from '../components/Navbar.jsx';
 import { Form } from '../components/Form.jsx';
@@ -16,6 +17,8 @@ import { ShortLinkService } from '../services/shortLinkService.js';
 import { ConfigStorageService } from '../services/configStorageService.js';
 import { ServiceError, MissingDependencyError } from '../services/errors.js';
 import { normalizeRuntime } from '../runtime/runtimeConfig.js';
+import { createRequestSecurity } from '../services/requestSecurity.js';
+import { fetchSubscriptionWithFormat } from '../parsers/subscription/httpSubscriptionFetcher.js';
 import { PREDEFINED_RULE_SETS, SING_BOX_CONFIG, SING_BOX_CONFIG_V1_11, generateSubconverterConfig } from '../config/index.js';
 
 const DEFAULT_USER_AGENT = 'curl/7.74.0';
@@ -23,15 +26,21 @@ const DEFAULT_USER_AGENT = 'curl/7.74.0';
 export function createApp(bindings = {}) {
     const runtime = normalizeRuntime(bindings);
     const services = {
-        shortLinks: runtime.kv ? new ShortLinkService(runtime.kv, { shortLinkTtlSeconds: runtime.config.shortLinkTtlSeconds }) : null,
+        shortLinks: runtime.kv ? new ShortLinkService(runtime.kv, {
+            shortLinkTtlSeconds: runtime.config.shortLinkTtlSeconds,
+            revocations: runtime.shortLinkRevocations
+        }) : null,
         configStorage: runtime.kv ? new ConfigStorageService(runtime.kv, { configTtlSeconds: runtime.config.configTtlSeconds }) : null
     };
 
     const app = new Hono();
+    const subscriptionHandlers = {};
+    app.use('*', createRequestSecurity(runtime));
+    app.use('*', bodyLimit({ maxSize: 1024 * 1024, onError: c => c.text('Request body too large', 413) }));
 
     app.use('*', async (c, next) => {
         const acceptLanguage = getRequestHeader(c.req, 'Accept-Language');
-        const lang = c.req.query('lang') || acceptLanguage?.split(',')[0] || 'zh-CN';
+        const lang = getQuery(c, 'lang') || acceptLanguage?.split(',')[0] || 'zh-CN';
         c.set('lang', lang);
         c.set('t', createTranslator(lang));
         await next();
@@ -68,29 +77,30 @@ export function createApp(bindings = {}) {
         );
     });
 
-    app.get('/singbox', async (c) => {
+    subscriptionHandlers.singbox = async (c) => {
         try {
-            const config = c.req.query('config');
+            const config = getQuery(c, 'config');
             if (!config) {
                 return c.text('Missing config parameter', 400);
             }
 
-            const selectedRules = parseSelectedRules(c.req.query('selectedRules'));
-            const customRules = parseJsonArray(c.req.query('customRules'));
-            const ua = c.req.query('ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
-            const groupByCountry = parseBooleanFlag(c.req.query('group_by_country'));
-            const includeAutoSelect = c.req.query('include_auto_select') !== 'false';
-            const enableClashUI = parseBooleanFlag(c.req.query('enable_clash_ui'));
-            const externalController = c.req.query('external_controller');
-            const externalUiDownloadUrl = c.req.query('external_ui_download_url');
-            const configId = c.req.query('configId');
+            const selectedRules = parseSelectedRules(getQuery(c, 'selectedRules'));
+            const customRules = parseJsonArray(getQuery(c, 'customRules'));
+            const ua = getQuery(c, 'ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
+            const groupByCountry = parseBooleanFlag(getQuery(c, 'group_by_country'));
+            const includeAutoSelect = getQuery(c, 'include_auto_select') !== 'false';
+            const enableClashUI = parseBooleanFlag(getQuery(c, 'enable_clash_ui'));
+            const externalController = getQuery(c, 'external_controller');
+            const externalUiDownloadUrl = getQuery(c, 'external_ui_download_url');
+            const configId = getQuery(c, 'configId');
             const lang = c.get('lang');
 
-            const requestedSingboxVersion = c.req.query('singbox_version') || c.req.query('sb_version') || c.req.query('sb_ver');
+            const requestedSingboxVersion = getQuery(c, 'singbox_version') || getQuery(c, 'sb_version') || getQuery(c, 'sb_ver');
             const requestUserAgent = getRequestHeader(c.req, 'User-Agent');
             const singboxConfigVersion = resolveSingboxConfigVersion(requestedSingboxVersion, requestUserAgent);
 
             let baseConfig = singboxConfigVersion === '1.11' ? SING_BOX_CONFIG_V1_11 : SING_BOX_CONFIG;
+            if (c.get('shortBaseConfig')?.type === 'singbox') baseConfig = c.get('shortBaseConfig').content;
             if (configId?.startsWith('singbox_')) {
                 const storage = requireConfigStorage(services.configStorage);
                 const storedConfig = await storage.getConfigById(configId);
@@ -113,6 +123,8 @@ export function createApp(bindings = {}) {
                 singboxConfigVersion,
                 includeAutoSelect
             );
+            builder.allowRemoteProviders = false;
+            builder.disableClashUI = !enableClashUI && !externalController && !externalUiDownloadUrl;
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
             if (userinfo) {
@@ -122,27 +134,29 @@ export function createApp(bindings = {}) {
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }
-    });
+    };
+    app.get('/singbox', subscriptionHandlers.singbox);
 
-    app.get('/clash', async (c) => {
+    subscriptionHandlers.clash = async (c) => {
         try {
-            const config = c.req.query('config');
+            const config = getQuery(c, 'config');
             if (!config) {
                 return c.text('Missing config parameter', 400);
             }
 
-            const selectedRules = parseSelectedRules(c.req.query('selectedRules'));
-            const customRules = parseJsonArray(c.req.query('customRules'));
-            const ua = c.req.query('ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
-            const groupByCountry = parseBooleanFlag(c.req.query('group_by_country'));
-            const includeAutoSelect = c.req.query('include_auto_select') !== 'false';
-            const enableClashUI = parseBooleanFlag(c.req.query('enable_clash_ui'));
-            const externalController = c.req.query('external_controller');
-            const externalUiDownloadUrl = c.req.query('external_ui_download_url');
-            const configId = c.req.query('configId');
+            const selectedRules = parseSelectedRules(getQuery(c, 'selectedRules'));
+            const customRules = parseJsonArray(getQuery(c, 'customRules'));
+            const ua = getQuery(c, 'ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
+            const groupByCountry = parseBooleanFlag(getQuery(c, 'group_by_country'));
+            const includeAutoSelect = getQuery(c, 'include_auto_select') !== 'false';
+            const enableClashUI = parseBooleanFlag(getQuery(c, 'enable_clash_ui'));
+            const externalController = getQuery(c, 'external_controller');
+            const externalUiDownloadUrl = getQuery(c, 'external_ui_download_url');
+            const configId = getQuery(c, 'configId');
             const lang = c.get('lang');
 
             let baseConfig;
+            if (c.get('shortBaseConfig')?.type === 'clash') baseConfig = c.get('shortBaseConfig').content;
             if (configId?.startsWith('clash_')) {
                 const storage = requireConfigStorage(services.configStorage);
                 baseConfig = await storage.getConfigById(configId);
@@ -161,6 +175,8 @@ export function createApp(bindings = {}) {
                 externalUiDownloadUrl,
                 includeAutoSelect
             );
+            builder.allowRemoteProviders = false;
+            builder.disableClashUI = !enableClashUI && !externalController && !externalUiDownloadUrl;
             await builder.build();
             const userinfo = builder.getSubscriptionUserinfo();
             const headers = { 'Content-Type': 'text/yaml; charset=utf-8' };
@@ -171,24 +187,26 @@ export function createApp(bindings = {}) {
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }
-    });
+    };
+    app.get('/clash', subscriptionHandlers.clash);
 
-    app.get('/surge', async (c) => {
+    subscriptionHandlers.surge = async (c) => {
         try {
-            const config = c.req.query('config');
+            const config = getQuery(c, 'config');
             if (!config) {
                 return c.text('Missing config parameter', 400);
             }
 
-            const selectedRules = parseSelectedRules(c.req.query('selectedRules'));
-            const customRules = parseJsonArray(c.req.query('customRules'));
-            const ua = c.req.query('ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
-            const groupByCountry = parseBooleanFlag(c.req.query('group_by_country'));
-            const includeAutoSelect = c.req.query('include_auto_select') !== 'false';
-            const configId = c.req.query('configId');
+            const selectedRules = parseSelectedRules(getQuery(c, 'selectedRules'));
+            const customRules = parseJsonArray(getQuery(c, 'customRules'));
+            const ua = getQuery(c, 'ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
+            const groupByCountry = parseBooleanFlag(getQuery(c, 'group_by_country'));
+            const includeAutoSelect = getQuery(c, 'include_auto_select') !== 'false';
+            const configId = getQuery(c, 'configId');
             const lang = c.get('lang');
 
             let baseConfig;
+            if (c.get('shortBaseConfig')?.type === 'surge') baseConfig = c.get('shortBaseConfig').content;
             if (configId?.startsWith('surge_')) {
                 const storage = requireConfigStorage(services.configStorage);
                 baseConfig = await storage.getConfigById(configId);
@@ -204,7 +222,9 @@ export function createApp(bindings = {}) {
                 groupByCountry,
                 includeAutoSelect
             );
+            builder.allowRemoteProviders = false;
             builder.setSubscriptionUrl(c.req.url);
+            builder.disableClashUI = true;
             await builder.build();
 
             const userinfo = builder.getSubscriptionUserinfo();
@@ -215,11 +235,12 @@ export function createApp(bindings = {}) {
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }
-    });
+    };
+    app.get('/surge', subscriptionHandlers.surge);
 
     app.get('/subconverter', (c) => {
         try {
-            const rawSelectedRules = c.req.query('selectedRules');
+            const rawSelectedRules = getQuery(c, 'selectedRules');
             let selectedRules;
 
             if (!rawSelectedRules) {
@@ -239,9 +260,9 @@ export function createApp(bindings = {}) {
                 }
             }
 
-            const includeAutoSelect = c.req.query('include_auto_select') !== 'false';
-            const groupByCountry = parseBooleanFlag(c.req.query('group_by_country'));
-            const customRules = parseJsonArray(c.req.query('customRules'));
+            const includeAutoSelect = getQuery(c, 'include_auto_select') !== 'false';
+            const groupByCountry = parseBooleanFlag(getQuery(c, 'group_by_country'));
+            const customRules = parseJsonArray(getQuery(c, 'customRules'));
             const lang = c.get('lang');
 
             const config = generateSubconverterConfig({
@@ -260,17 +281,19 @@ export function createApp(bindings = {}) {
         }
     });
 
-    app.get('/xray', async (c) => {
-        const inputString = c.req.query('config');
+    subscriptionHandlers.xray = async (c) => {
+        const inputString = getQuery(c, 'config');
         if (!inputString) {
             return c.text('Missing config parameter', 400);
+        }
+        if (inputString.length > 512 * 1024 || inputString.split('\n').filter(line => /^https?:\/\//i.test(line.trim())).length > 16) {
+            return c.text('Subscription input exceeds the size or URL limit', 400);
         }
 
         const proxylist = inputString.split('\n');
         const finalProxyList = [];
         let subscriptionUserinfo;
-        const userAgent = c.req.query('ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
-        const headers = { 'User-Agent': userAgent };
+        const userAgent = getQuery(c, 'ua') || getRequestHeader(c.req, 'User-Agent') || DEFAULT_USER_AGENT;
 
         for (const proxy of proxylist) {
             const trimmedProxy = proxy.trim();
@@ -278,17 +301,18 @@ export function createApp(bindings = {}) {
 
             if (trimmedProxy.startsWith('http://') || trimmedProxy.startsWith('https://')) {
                 try {
-                    const response = await fetch(trimmedProxy, { method: 'GET', headers });
-                    const fetchedUserinfo = response.headers.get('subscription-userinfo');
+                    const subscription = await fetchSubscriptionWithFormat(trimmedProxy, userAgent);
+                    if (!subscription) continue;
+                    const fetchedUserinfo = subscription.subscriptionUserinfo;
                     if (fetchedUserinfo && subscriptionUserinfo === undefined) {
                         subscriptionUserinfo = fetchedUserinfo;
                     }
-                    const text = await response.text();
+                    const text = subscription.content;
                     let processed = tryDecodeSubscriptionLines(text, { decodeUriComponent: true });
                     if (!Array.isArray(processed)) processed = [processed];
                     finalProxyList.push(...processed.filter(item => typeof item === 'string' && item.trim() !== ''));
                 } catch (e) {
-                    runtime.logger.warn('Failed to fetch the proxy', e);
+                    runtime.logger.warn('Failed to fetch a subscription');
                 }
             } else {
                 let processed = tryDecodeSubscriptionLines(trimmedProxy);
@@ -308,11 +332,16 @@ export function createApp(bindings = {}) {
         }
 
         return c.text(encodeBase64(finalString), 200, responseHeaders);
-    });
+    };
+    app.get('/xray', subscriptionHandlers.xray);
 
-    app.get('/shorten-v2', async (c) => {
+    app.get('/shorten-v2', c => c.text('Use POST with a JSON body', 405));
+    app.post('/shorten-v2', async (c) => {
         try {
-            const url = c.req.query('url');
+            const { url, shortCode } = await c.req.json();
+            if (shortCode !== undefined || getQuery(c, 'shortCode') !== undefined) {
+                return c.text('Custom short codes are disabled', 400);
+            }
             if (!url) {
                 return c.text('Missing URL parameter', 400);
             }
@@ -322,34 +351,64 @@ export function createApp(bindings = {}) {
             } catch {
                 return c.text('Invalid URL parameter', 400);
             }
+            if (parsedUrl.origin !== new URL(c.req.url).origin || !/^\/(singbox|clash|surge|xray)$/.test(parsedUrl.pathname)) {
+                return c.text('A local conversion URL is required', 400);
+            }
             const queryString = parsedUrl.search;
+            const configId = parsedUrl.searchParams.get('configId');
+            let baseConfig;
+            if (configId) {
+                const content = await requireConfigStorage(services.configStorage).getConfigById(configId);
+                if (!content) return c.text('Base config not found', 400);
+                baseConfig = { type: configId.split('_')[0], content };
+            }
 
             const shortLinks = requireShortLinkService(services.shortLinks);
-            const code = await shortLinks.createShortLink(queryString, c.req.query('shortCode'));
+            const code = await shortLinks.createShortLink(queryString, undefined, baseConfig);
             return c.text(code);
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }
     });
 
-    const redirectHandler = (prefix) => async (c) => {
+    const shortLinkHandler = (prefix) => async (c) => {
         try {
             const code = c.req.param('code');
             const shortLinks = requireShortLinkService(services.shortLinks);
             const originalParam = await shortLinks.resolveShortCode(code);
             if (!originalParam) return c.text('Short URL not found', 404);
 
-            const url = new URL(c.req.url);
-            return c.redirect(`${url.origin}/${prefix}${originalParam}`);
+            const params = new URLSearchParams(originalParam);
+            c.set('subscriptionQuery', params);
+            if (params.get('hasBaseConfig') === 'true') c.set('shortBaseConfig', await shortLinks.getBaseConfig(code));
+            const lang = params.get('lang') || getRequestHeader(c.req, 'Accept-Language')?.split(',')[0] || 'zh-CN';
+            c.set('lang', lang);
+            c.set('t', createTranslator(lang));
+            return subscriptionHandlers[prefix](c);
         } catch (error) {
             return handleError(c, error, runtime.logger);
         }
     };
 
-    app.get('/s/:code', redirectHandler('surge'));
-    app.get('/b/:code', redirectHandler('singbox'));
-    app.get('/c/:code', redirectHandler('clash'));
-    app.get('/x/:code', redirectHandler('xray'));
+    app.get('/s/:code', shortLinkHandler('surge'));
+    app.get('/b/:code', shortLinkHandler('singbox'));
+    app.get('/c/:code', shortLinkHandler('clash'));
+    app.get('/x/:code', shortLinkHandler('xray'));
+
+    app.post('/short-links/delete', async (c) => {
+        try {
+            const { url } = await c.req.json();
+            let parsed;
+            try { parsed = new URL(url); } catch { return c.text('Invalid short URL', 400); }
+            const match = parsed.pathname.match(/^\/[bcxs]\/([A-Za-z0-9_-]{1,128})$/);
+            if (parsed.origin !== new URL(c.req.url).origin || !match) return c.text('A local short URL is required', 400);
+            const shortLinks = requireShortLinkService(services.shortLinks);
+            await shortLinks.deleteShortLink(match[1]);
+            return c.text('Short link deleted');
+        } catch (error) {
+            return handleError(c, error, runtime.logger);
+        }
+    });
 
     app.post('/config', async (c) => {
         try {
@@ -359,42 +418,15 @@ export function createApp(bindings = {}) {
             return c.text(configId);
         } catch (error) {
             if (error instanceof SyntaxError) {
-                return c.text(`Invalid format: ${error.message}`, 400);
+                return c.text('Invalid JSON format', 400);
             }
             return handleError(c, error, runtime.logger);
         }
     });
 
-    app.get('/resolve', async (c) => {
-        try {
-            const shortUrl = c.req.query('url');
-            const t = c.get('t');
-            if (!shortUrl) return c.text(t('missingUrl'), 400);
+    app.get('/resolve', c => c.text('Source URL resolution is disabled', 410));
 
-            let urlObj;
-            try {
-                urlObj = new URL(shortUrl);
-            } catch {
-                return c.text(t('invalidShortUrl'), 400);
-            }
-            const pathParts = urlObj.pathname.split('/');
-            if (pathParts.length < 3) return c.text(t('invalidShortUrl'), 400);
-
-            const prefix = pathParts[1];
-            const shortCode = pathParts[2];
-            if (!['b', 'c', 'x', 's'].includes(prefix)) return c.text(t('invalidShortUrl'), 400);
-
-            const shortLinks = requireShortLinkService(services.shortLinks);
-            const originalParam = await shortLinks.resolveShortCode(shortCode);
-            if (!originalParam) return c.text(t('shortUrlNotFound'), 404);
-
-            const mapping = { b: 'singbox', c: 'clash', x: 'xray', s: 'surge' };
-            const originalUrl = `${urlObj.origin}/${mapping[prefix]}${originalParam}`;
-            return c.json({ originalUrl });
-        } catch (error) {
-            return handleError(c, error, runtime.logger);
-        }
-    });
+    app.get('/assets/*', c => runtime.assetFetcher ? runtime.assetFetcher(c.req.raw) : c.notFound());
 
     app.get('/favicon.ico', async (c) => {
         if (!runtime.assetFetcher) {
@@ -426,7 +458,7 @@ export function parseSelectedRules(raw) {
         return Array.isArray(parsed) ? parsed : [];
     } catch {
         // 解析失败，回退到 minimal 预设
-        console.warn(`Failed to parse selectedRules: ${raw}, falling back to minimal`);
+        console.warn('Invalid selectedRules; using the minimal preset');
         return PREDEFINED_RULE_SETS.minimal;
     }
 }
@@ -569,4 +601,9 @@ function handleError(c, error, logger) {
     }
     logger.error?.('Unhandled error', error);
     return c.text(`Error: ${error.message}`, 500);
+}
+
+function getQuery(c, name) {
+    const params = c.get('subscriptionQuery');
+    return params ? params.get(name) ?? undefined : c.req.query(name);
 }

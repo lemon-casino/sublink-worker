@@ -125,7 +125,7 @@ export function parseShadowsocks(url) {
 
         return createConfig(tag, server, server_port, method, password, pluginInfo);
     } catch (e) {
-        console.error('Failed to parse shadowsocks URL:', e);
+        console.error('Unable to parse a Shadowsocks URL');
         return null;
     }
 }

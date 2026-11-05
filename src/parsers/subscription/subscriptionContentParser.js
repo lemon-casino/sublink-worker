@@ -118,11 +118,11 @@ function parseInterval(interval) {
 export function parseClashYaml(content) {
     try {
         const parsed = yaml.load(content);
-        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.proxies)) {
-            const proxies = parsed.proxies
+        if (parsed && typeof parsed === 'object' && (Array.isArray(parsed.proxies) || parsed['proxy-providers'])) {
+            const proxies = (parsed.proxies || [])
                 .map(p => convertYamlProxyToObject(p))
                 .filter(p => p != null);
-            if (proxies.length > 0) {
+            if (proxies.length > 0 || parsed['proxy-providers']) {
                 const configOverrides = deepCopy(parsed);
                 delete configOverrides.proxies;
                 return {
@@ -185,7 +185,7 @@ export function parseSurgeIni(content) {
         }
     } catch (e) {
         // Not valid Surge INI
-        console.warn('Surge INI parsing failed:', e?.message || e);
+        console.warn('Unable to parse Surge INI');
     }
     return null;
 }

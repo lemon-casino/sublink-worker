@@ -9,6 +9,9 @@ const MIME_TYPES = {
     '.svg': 'image/svg+xml',
     '.css': 'text/css',
     '.js': 'text/javascript',
+    '.woff2': 'font/woff2',
+    '.woff': 'font/woff',
+    '.ttf': 'font/ttf',
     '.json': 'application/json',
     '.txt': 'text/plain'
 };
@@ -21,7 +24,8 @@ export function createFileAssetFetcher(rootDirectory = 'public') {
         relativePath = relativePath.replace(/^\/+/, '');
         const targetPath = path.resolve(root, relativePath);
 
-        if (!targetPath.startsWith(root)) {
+        const relativeTarget = path.relative(root, targetPath);
+        if (relativeTarget.startsWith('..') || path.isAbsolute(relativeTarget)) {
             return new Response('Not found', { status: 404 });
         }
 

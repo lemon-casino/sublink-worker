@@ -46,6 +46,17 @@
 - **Docker**: `docker pull ghcr.io/7sageer/sublink-worker:latest`
 - **Docker Compose**: `docker compose up -d` (includes Redis)
 
+### Subscription Privacy
+
+- No login or management dashboard is required. Possession of a short link grants access to its nodes and the ability to delete it; keep links private.
+- New short codes are generated using Web Crypto and cannot be chosen or overwritten. Create links with `POST /shorten-v2`, JSON `{ "url": "https://YOUR_HOST/clash?config=..." }`. The old GET creation API and source URL resolver are disabled.
+- Short links return configurations directly. HTTP proxy providers are fetched and inlined so their original subscription URLs are not returned to clients. Refresh the subscription to update nodes.
+- Use **Delete short link** on the homepage, or `POST /short-links/delete` with JSON `{ "url": "https://YOUR_HOST/c/CODE" }`. All four client formats for that code are revoked together. The link parameters and its private base-config snapshot are removed; independently saved base configurations are retained. Previously downloaded nodes cannot be recalled.
+- Cloudflare uses a SQLite Durable Object to check revocations consistently, including when KV still contains a cached copy. Other runtimes use their KV adapter for revocation markers. Existing short links remain readable and deletable; regenerate older links to benefit from stronger random codes.
+- Subscription inputs and base configurations are not persisted in browser storage; old saved values are removed when the page opens. Scripts, styles, and fonts are built locally from locked dependencies.
+- Cloudflare limits each client IP to 120 reads and 10 writes per minute per location. Node/Vercel use a bounded process-local fallback. Responses containing subscriptions are not cached; fetching is limited to 16 input URLs, 2 MiB per remote response, and a 15-second timeout per fetch.
+- Node.js 22 or newer is required. Run `npm ci` before building. `npm run deploy`, `npm run build`, and `npm run build:node` build local frontend assets automatically. Run `npm run build:assets` first if invoking Wrangler directly.
+
 ## ✨ Features
 
 ### Supported Protocols

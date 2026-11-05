@@ -10,3 +10,22 @@ kv_namespaces = [
 
 [assets]
 directory = "./public"
+binding = "ASSETS"
+
+[[durable_objects.bindings]]
+name = "SHORT_LINK_REVOCATIONS"
+class_name = "ShortLinkRevocations"
+
+[[migrations]]
+tag = "v1-short-link-revocations"
+new_sqlite_classes = ["ShortLinkRevocations"]
+
+[[ratelimits]]
+name = "READ_LIMITER"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
+
+[[ratelimits]]
+name = "WRITE_LIMITER"
+namespace_id = "1002"
+simple = { limit = 10, period = 60 }

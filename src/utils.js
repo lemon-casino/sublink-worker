@@ -1,4 +1,4 @@
-const PATH_LENGTH = 7;
+const PATH_LENGTH = 32;
 const FNV_32_OFFSET_BASIS = 0x811c9dc5;
 const FNV_32_PRIME = 0x01000193;
 
@@ -244,12 +244,17 @@ export function deepCopy(obj) {
 }
 
 export function generateWebPath(length = PATH_LENGTH) {
-	const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-	let result = ''
-	for (let i = 0; i < length; i++) {
-		result += characters.charAt(Math.floor(Math.random() * characters.length))
+	const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+	let result = '';
+	while (result.length < length) {
+		const bytes = crypto.getRandomValues(new Uint8Array(length));
+		for (const byte of bytes) {
+			// Rejection sampling keeps every character equally likely.
+			if (byte < 248) result += characters[byte % characters.length];
+			if (result.length === length) break;
+		}
 	}
-	return result
+	return result;
 }
 
 export function parseServerInfo(serverInfo) {
