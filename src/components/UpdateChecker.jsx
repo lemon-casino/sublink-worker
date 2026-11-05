@@ -19,7 +19,7 @@ export const UpdateChecker = () => {
             x-transition:leave="transition ease-in duration-200"
             x-transition:leave-start="opacity-100 translate-y-0"
             x-transition:leave-end="opacity-0 translate-y-2"
-            class="fixed bottom-6 right-6 z-50 max-w-sm"
+            class="fixed bottom-24 right-6 z-50 max-w-sm"
         >
             <div class="bg-white dark:bg-gray-800/95 backdrop-blur-md border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-4 ring-1 ring-black/5">
                 <div class="flex items-start gap-3">

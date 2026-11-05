@@ -3,9 +3,8 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { Layout } from '../components/Layout.jsx';
-import { Navbar } from '../components/Navbar.jsx';
+import { ThemeToggle } from '../components/ThemeToggle.jsx';
 import { Form } from '../components/Form.jsx';
-import { Footer } from '../components/Footer.jsx';
 import { UpdateChecker } from '../components/UpdateChecker.jsx';
 import { SingboxConfigBuilder } from '../builders/SingboxConfigBuilder.js';
 import { ClashConfigBuilder } from '../builders/ClashConfigBuilder.js';
@@ -54,9 +53,8 @@ export function createApp(bindings = {}) {
         return c.html(
             <Layout title={t('pageTitle')} description={t('pageDescription')} keywords={t('pageKeywords')}>
                 <div class="flex flex-col min-h-screen">
-                    <Navbar />
                     <main class="flex-1">
-                        <div class="container mx-auto px-4 py-8 pt-24">
+                        <div class="container mx-auto px-4 py-8 pb-24">
                             <div class="max-w-4xl mx-auto">
                                 <div class="text-center mb-12 pt-8">
                                     <h1 class="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white mb-4 tracking-tight">
@@ -70,7 +68,7 @@ export function createApp(bindings = {}) {
                             </div>
                         </div>
                     </main>
-                    <Footer />
+                    <ThemeToggle label={t('toggleTheme')} />
                     <UpdateChecker />
                 </div>
             </Layout>

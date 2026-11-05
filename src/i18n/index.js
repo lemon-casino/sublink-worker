@@ -643,6 +643,7 @@ export const translations = {
 };
 
 Object.assign(translations["zh-CN"], {
+  "toggleTheme": "切换主题",
   "deleteShortLink": "删除短链",
   "deleteShortLinkHelp": "输入本站生成的短链。删除后，同一码的所有客户端链接都会失效，无法恢复。",
   "deleteShortLinkPlaceholder": "粘贴需要删除的完整短链",
@@ -652,6 +653,7 @@ Object.assign(translations["zh-CN"], {
 });
 
 Object.assign(translations["en-US"], {
+  "toggleTheme": "Toggle theme",
   "deleteShortLink": "Delete short link",
   "deleteShortLinkHelp": "Enter a short link created on this site. Deletion permanently disables every client format using the same code.",
   "deleteShortLinkPlaceholder": "Paste the complete short link",
@@ -661,6 +663,7 @@ Object.assign(translations["en-US"], {
 });
 
 Object.assign(translations["fa"], {
+  "toggleTheme": "تغییر پوسته",
   "deleteShortLink": "حذف پیوند کوتاه",
   "deleteShortLinkHelp": "پیوند کوتاه این سایت را وارد کنید. حذف آن همه قالب‌های دارای همان کد را برای همیشه غیرفعال می‌کند.",
   "deleteShortLinkPlaceholder": "پیوند کوتاه کامل را وارد کنید",
@@ -670,6 +673,7 @@ Object.assign(translations["fa"], {
 });
 
 Object.assign(translations["ru"], {
+  "toggleTheme": "Переключить тему",
   "deleteShortLink": "Удалить короткую ссылку",
   "deleteShortLinkHelp": "Введите ссылку этого сайта. Удаление навсегда отключит все форматы с тем же кодом.",
   "deleteShortLinkPlaceholder": "Вставьте полную короткую ссылку",
