@@ -69,17 +69,16 @@ export const formLogicFn = (t) => {
             }
         };
 
+        const advancedKeys = ['selectedRules', 'selectedPredefinedRule', 'groupByCountry', 'includeAutoSelect', 'enableClashUI', 'externalController', 'externalUiDownloadUrl', 'configType', 'configEditor', 'currentConfigId', 'customUA', 'customRules'];
+        const copy = value => JSON.parse(JSON.stringify(value));
+
         return {
             input: '',
             showAdvanced: false,
-            // Accordion states for each section (二级手风琴状态)
-            accordionSections: {
-                rules: true,        // 规则选择 - 默认展开
-                customRules: false, // 自定义规则
-                general: false,     // 通用设置
-                baseConfig: false,  // 基础配置
-                ua: false          // User Agent
-            },
+            advancedTab: 'rules',
+            advancedSnapshot: null,
+            advancedError: '',
+            customRules: [],
             selectedRules: [],
             selectedPredefinedRule: 'balanced',
             subconverterCopied: false,
@@ -92,10 +91,7 @@ export const formLogicFn = (t) => {
             configEditor: '',
             savingConfig: false,
             currentConfigId: '',
-            saveConfigText: '',
-            savingConfigText: '',
             configContentRequiredText: '',
-            configSaveFailedText: '',
             configValidationState: '',
             configValidationMessage: '',
             customUA: '',
@@ -103,9 +99,12 @@ export const formLogicFn = (t) => {
             generatedLinks: null,
             shortenedLinks: null,
             shortening: false,
-            deleteUrl: '',
             deleting: false,
-            deleteStatus: '',
+            rotating: false,
+            actionStatus: '',
+            shortLinkState: 'idle',
+            inputVersion: 0,
+            lastActionInput: null,
             parsingUrl: false,
             parseDebounceTimer: null,
             // These will be populated from window.APP_TRANSLATIONS
@@ -123,32 +122,18 @@ export const formLogicFn = (t) => {
                     this.shortenLinksText = window.APP_TRANSLATIONS.shortenLinks;
                     this.shorteningText = window.APP_TRANSLATIONS.shortening;
                     this.showFullLinksText = window.APP_TRANSLATIONS.showFullLinks;
-                    this.saveConfigText = window.APP_TRANSLATIONS.saveConfig;
-                    this.savingConfigText = window.APP_TRANSLATIONS.savingConfig;
                     this.configContentRequiredText = window.APP_TRANSLATIONS.configContentRequired;
-                    this.configSaveFailedText = window.APP_TRANSLATIONS.configSaveFailed;
                 }
 
                 // Remove secrets persisted by earlier versions before initializing the form.
-                for (const key of ['inputTextarea', 'configEditor', 'customShortCode', 'externalController', 'externalUiDownloadUrl', 'userAgent', 'enableClashUI']) localStorage.removeItem(key);
+                for (const key of ['inputTextarea', 'configEditor', 'customShortCode', 'externalController', 'externalUiDownloadUrl', 'userAgent', 'enableClashUI', 'advancedToggle', 'accordionSections']) localStorage.removeItem(key);
 
                 // Load saved preferences
-                this.showAdvanced = localStorage.getItem('advancedToggle') === 'true';
                 this.groupByCountry = localStorage.getItem('groupByCountry') === 'true';
                 this.includeAutoSelect = localStorage.getItem('includeAutoSelect') !== 'false';
                 this.configType = localStorage.getItem('configType') || 'singbox';
                 const initialUrlParams = new URLSearchParams(window.location.search);
                 this.currentConfigId = initialUrlParams.get('configId') || '';
-
-                // Load accordion states
-                const savedAccordion = localStorage.getItem('accordionSections');
-                if (savedAccordion) {
-                    try {
-                        this.accordionSections = JSON.parse(savedAccordion);
-                    } catch (e) {
-                        // If parsing fails, keep defaults
-                    }
-                }
 
                 // Initialize rules
                 this.applyPredefinedRule();
@@ -157,21 +142,98 @@ export const formLogicFn = (t) => {
                 this.$watch('input', val => {
                     this.handleInputChange(val);
                 });
-                this.$watch('showAdvanced', val => localStorage.setItem('advancedToggle', val));
-                this.$watch('groupByCountry', val => localStorage.setItem('groupByCountry', val));
-                this.$watch('includeAutoSelect', val => localStorage.setItem('includeAutoSelect', val));
                 this.$watch('configEditor', val => {
                     this.resetConfigValidation();
                 });
                 this.$watch('configType', val => {
-                    localStorage.setItem('configType', val);
                     this.resetConfigValidation();
                 });
-                this.$watch('accordionSections', val => localStorage.setItem('accordionSections', JSON.stringify(val)), { deep: true });
             },
 
-            toggleAccordion(section) {
-                this.accordionSections[section] = !this.accordionSections[section];
+            get localShortLink() {
+                const value = this.input.trim();
+                if (!value || value.includes('\n')) return null;
+                try {
+                    const url = new URL(value);
+                    const origins = [window.location.origin, ...(window.APP_SHORT_LINK_ORIGINS || [])];
+                    return origins.includes(url.origin) && !url.username && !url.password && /^\/[bcxs](?:\/|$)/.test(url.pathname) ? url.href : null;
+                } catch { return null; }
+            },
+
+            get isLocalShortLink() { return this.localShortLink !== null; },
+
+            readCustomRules() {
+                const input = typeof document === 'undefined' ? null : document.querySelector('input[name="customRules"]');
+                const editor = input?.closest('[x-data]');
+                const state = editor && window.Alpine ? window.Alpine.$data(editor) : null;
+                const rules = state?.mode === 'json' ? JSON.parse(state.jsonContent) : (input?.value ? JSON.parse(input.value) : this.customRules);
+                if (!Array.isArray(rules)) throw new Error('Custom rules must be an array');
+                return copy(rules);
+            },
+
+            restoreCustomRules(rules, mode) {
+                window.dispatchEvent(new CustomEvent('restore-custom-rules', { detail: { rules: copy(rules), mode } }));
+            },
+
+            openAdvanced() {
+                if (this.showAdvanced || this.isLocalShortLink) return;
+                this.advancedSnapshot = Object.fromEntries(advancedKeys.map(key => [key, copy(this[key])]));
+                const input = typeof document === 'undefined' ? null : document.querySelector('input[name="customRules"]');
+                const editor = input?.closest('[x-data]');
+                this.advancedSnapshot.customRulesMode = editor && window.Alpine ? window.Alpine.$data(editor).mode : 'form';
+                this.advancedError = '';
+                this.$refs.advancedDialog.showModal();
+                this.showAdvanced = true;
+            },
+
+            closeAdvanced() {
+                this.showAdvanced = false;
+                this.advancedSnapshot = null;
+                this.$refs.advancedDialog.close();
+            },
+
+            cancelAdvanced() {
+                if (this.savingConfig || !this.advancedSnapshot) return;
+                const snapshot = this.advancedSnapshot;
+                for (const key of advancedKeys) this[key] = copy(snapshot[key]);
+                this.restoreCustomRules(this.customRules, snapshot.customRulesMode);
+                this.resetConfigValidation();
+                this.advancedError = '';
+                this.closeAdvanced();
+            },
+
+            async confirmAdvanced() {
+                if (this.savingConfig || !this.advancedSnapshot) return;
+                this.advancedError = '';
+                let rules;
+                try { rules = this.readCustomRules(); } catch {
+                    this.advancedTab = 'customRules';
+                    this.advancedError = window.APP_TRANSLATIONS.customRulesInvalid;
+                    return;
+                }
+                const previous = this.advancedSnapshot;
+                if (this.configEditor.trim() && (this.configEditor !== previous.configEditor || this.configType !== previous.configType || !this.currentConfigId)) {
+                    this.validateBaseConfig();
+                    if (this.configValidationState === 'error') {
+                        this.advancedTab = 'baseConfig';
+                        this.advancedError = this.configValidationMessage;
+                        return;
+                    }
+                    if (!await this.saveBaseConfig()) { this.advancedTab = 'baseConfig'; return; }
+                }
+                this.customRules = rules;
+                for (const [field, key] of [['groupByCountry', 'groupByCountry'], ['includeAutoSelect', 'includeAutoSelect'], ['configType', 'configType']]) localStorage.setItem(key, String(this[field]));
+                this.updateConfigIdInUrl(this.currentConfigId || null);
+                this.closeAdvanced();
+            },
+
+            navigateAdvancedTabs(event) {
+                const tabs = ['rules', 'customRules', 'general', 'baseConfig', 'ua', 'subconverter'];
+                const index = tabs.indexOf(this.advancedTab);
+                if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                this.advancedTab = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
+                this.$nextTick(() => document.getElementById('advanced-tab-' + this.advancedTab).focus());
             },
 
             applyPredefinedRule() {
@@ -197,8 +259,7 @@ export const formLogicFn = (t) => {
 
                 // Include customRules when available (best-effort; may make URL long)
                 try {
-                    const customRulesInput = document.querySelector('input[name="customRules"]');
-                    const customRules = customRulesInput && customRulesInput.value ? JSON.parse(customRulesInput.value) : [];
+                    const customRules = this.customRules;
                     if (Array.isArray(customRules) && customRules.length > 0) {
                         params.append('customRules', JSON.stringify(customRules));
                     }
@@ -236,56 +297,22 @@ export const formLogicFn = (t) => {
             },
 
             async saveBaseConfig() {
-                const content = (this.configEditor || '').trim();
-                if (!content) {
-                    alert(this.configContentRequiredText || window.APP_TRANSLATIONS.configContentRequired);
-                    return;
-                }
-
-                let payloadContent = this.configEditor;
-                if (this.configType === 'surge') {
-                    try {
-                        const { configObject } = parseSurgeConfigInput(this.configEditor);
-                        payloadContent = JSON.stringify(configObject);
-                    } catch (parseError) {
-                        const prefix = window.APP_TRANSLATIONS.configValidationError || 'Config validation error:';
-                        alert(`${prefix} ${parseError?.message || ''}`.trim());
-                        return;
-                    }
-                }
-
                 this.savingConfig = true;
                 try {
+                    const content = this.configType === 'surge' ? JSON.stringify(parseSurgeConfigInput(this.configEditor).configObject) : this.configEditor;
                     const response = await fetch('/config', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            type: this.configType,
-                            content: payloadContent
-                        })
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type: this.configType, content })
                     });
-                    const responseText = await response.text();
-                    if (!response.ok) {
-                        throw new Error(responseText || response.statusText || 'Request failed');
-                    }
-                    const configId = responseText.trim();
-                    if (!configId) {
-                        throw new Error('Missing config ID');
-                    }
-                    this.currentConfigId = configId;
-                    this.updateConfigIdInUrl(configId);
-
-                    const successMessage = window.APP_TRANSLATIONS.saveConfigSuccess || 'Configuration saved successfully!';
-                    alert(`${successMessage}\nID: ${configId}`);
-                } catch (error) {
-                    console.error('Failed to save base config:', error);
-                    const errorPrefix = this.configSaveFailedText || window.APP_TRANSLATIONS.configSaveFailed || 'Failed to save configuration';
-                    alert(`${errorPrefix}: ${error?.message || 'Unknown error'}`);
-                } finally {
-                    this.savingConfig = false;
-                }
+                    if (!response.ok) throw new Error('Unable to save the base configuration');
+                    const id = (await response.text()).trim();
+                    if (!id) throw new Error('Missing configuration ID');
+                    this.currentConfigId = id;
+                    return true;
+                } catch {
+                    this.advancedError = window.APP_TRANSLATIONS.configSaveFailed;
+                    return false;
+                } finally { this.savingConfig = false; }
             },
 
             validateBaseConfig() {
@@ -328,7 +355,6 @@ export const formLogicFn = (t) => {
                     this.configEditor = '';
                     localStorage.removeItem('configEditor');
                     this.currentConfigId = '';
-                    this.updateConfigIdInUrl(null);
                 }
             },
 
@@ -337,6 +363,7 @@ export const formLogicFn = (t) => {
                     this.input = '';
                     this.generatedLinks = null;
                     this.shortenedLinks = null;
+                    this.actionStatus = '';
 
                     // Also clear from localStorage
                     localStorage.removeItem('customShortCode');
@@ -354,6 +381,8 @@ export const formLogicFn = (t) => {
             },
 
             async submitForm() {
+                if (this.showAdvanced || this.rotating || this.deleting) return;
+                if (this.isLocalShortLink) { await this.deleteShortLink(); return; }
                 this.loading = true;
                 this.shortenedLinks = null; // Reset shortened links when generating new links
                 try {
@@ -371,9 +400,11 @@ export const formLogicFn = (t) => {
 
                     if (this.groupByCountry) params.append('group_by_country', 'true');
                     if (!this.includeAutoSelect) params.append('include_auto_select', 'false');
-                    if (this.enableClashUI) params.append('enable_clash_ui', 'true');
-                    if (this.externalController) params.append('external_controller', this.externalController);
-                    if (this.externalUiDownloadUrl) params.append('external_ui_download_url', this.externalUiDownloadUrl);
+                    if (this.enableClashUI) {
+                        params.append('enable_clash_ui', 'true');
+                        if (this.externalController) params.append('external_controller', this.externalController);
+                        if (this.externalUiDownloadUrl) params.append('external_ui_download_url', this.externalUiDownloadUrl);
+                    }
 
                     // Add configId if present in URL
                     const urlParams = new URLSearchParams(window.location.search);
@@ -443,48 +474,83 @@ export const formLogicFn = (t) => {
             },
 
             async deleteShortLink() {
-                this.deleteStatus = '';
-                if (!this.deleteUrl.trim() || !confirm(window.APP_TRANSLATIONS.deleteShortLinkConfirm)) return;
+                const url = this.localShortLink;
+                if (!url || this.shortLinkState !== 'valid' || this.deleting || this.rotating || !confirm(window.APP_TRANSLATIONS.deleteShortLinkConfirm)) return;
                 this.deleting = true;
+                this.actionStatus = '';
                 try {
-                    const deletedUrl = new URL(this.deleteUrl.trim());
-                    if (deletedUrl.origin !== window.location.origin || !/^\/[bcxs]\/[A-Za-z0-9_-]{1,128}$/.test(deletedUrl.pathname)) throw new Error('Invalid short URL');
                     const response = await fetch('/short-links/delete', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url: deletedUrl.href })
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url })
                     });
                     if (!response.ok) throw new Error('Unable to delete the short link');
-                    const code = deletedUrl.pathname.split('/')[2];
-                    if (this.shortenedLinks && Object.values(this.shortenedLinks).some(link => new URL(link).pathname.split('/')[2] === code)) {
-                        this.shortenedLinks = null;
-                        this.generatedLinks = null;
-                    }
-                    this.deleteUrl = '';
-                    this.deleteStatus = window.APP_TRANSLATIONS.deleteShortLinkSuccess;
-                } catch {
-                    this.deleteStatus = window.APP_TRANSLATIONS.deleteShortLinkFailed;
-                } finally {
-                    this.deleting = false;
-                }
+                    this.generatedLinks = null;
+                    this.shortenedLinks = null;
+                    this.lastActionInput = '';
+                    this.input = '';
+                    this.shortLinkState = 'idle';
+                    this.actionStatus = window.APP_TRANSLATIONS.deleteShortLinkSuccess;
+                } catch { this.actionStatus = window.APP_TRANSLATIONS.deleteShortLinkFailed; }
+                finally { this.deleting = false; }
             },
 
-            // Handle input change with debounce
+            async rotateShortLink() {
+                const url = this.localShortLink;
+                if (!url || this.shortLinkState !== 'valid' || this.rotating || this.deleting || !confirm(window.APP_TRANSLATIONS.rotateShortLinkConfirm)) return;
+                this.rotating = true;
+                this.actionStatus = '';
+                try {
+                    const response = await fetch('/short-links/rotate', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url })
+                    });
+                    if (!response.ok) {
+                        if ([400, 404, 410].includes(response.status)) this.shortLinkState = 'invalid';
+                        throw new Error('Unable to replace the short link');
+                    }
+                    const { code } = await response.json();
+                    if (!/^[A-Za-z0-9]{32}$/.test(code)) throw new Error('Invalid replacement code');
+                    const prefixes = { xray: 'x', singbox: 'b', clash: 'c', surge: 's' };
+                    this.generatedLinks = null;
+                    this.shortenedLinks = Object.fromEntries(Object.entries(prefixes).map(([type, prefix]) => [type, window.location.origin + '/' + prefix + '/' + code]));
+                    const prefix = new URL(url).pathname.split('/')[1];
+                    const next = window.location.origin + '/' + prefix + '/' + code;
+                    this.lastActionInput = next;
+                    this.input = next;
+                    this.shortLinkState = 'valid';
+                    this.actionStatus = window.APP_TRANSLATIONS.rotateShortLinkSuccess;
+                } catch { this.actionStatus = window.APP_TRANSLATIONS.rotateShortLinkFailed; }
+                finally { this.rotating = false; }
+            },
+
+            async validateInputShortLink() {
+                const url = this.localShortLink;
+                const version = ++this.inputVersion;
+                if (!url) { this.shortLinkState = 'idle'; return; }
+                this.shortLinkState = 'checking';
+                try {
+                    const response = await fetch('/short-links/inspect', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url })
+                    });
+                    if (version !== this.inputVersion || url !== this.localShortLink) return;
+                    this.shortLinkState = response.ok ? 'valid' : ([400, 404, 410].includes(response.status) ? 'invalid' : 'error');
+                } catch { if (version === this.inputVersion) this.shortLinkState = 'error'; }
+            },
+
             handleInputChange(val) {
-                // Clear previous timer
-                if (this.parseDebounceTimer) {
-                    clearTimeout(this.parseDebounceTimer);
+                if (this.parseDebounceTimer) clearTimeout(this.parseDebounceTimer);
+                this.inputVersion++;
+                const preserve = this.lastActionInput !== null && val === this.lastActionInput;
+                this.lastActionInput = null;
+                if (!preserve) {
+                    this.actionStatus = '';
+                    this.generatedLinks = null;
+                    this.shortenedLinks = null;
                 }
-
-                // If input is empty, don't try to parse
-                if (!val || !val.trim()) {
-                    return;
-                }
-
-                // Debounce for 500ms
+                this.shortLinkState = this.isLocalShortLink ? 'checking' : 'idle';
+                if (!val?.trim()) return;
                 this.parseDebounceTimer = setTimeout(() => {
-                    this.tryParseSubscriptionUrl(val.trim());
-                }, 500);
+                    if (this.isLocalShortLink) this.validateInputShortLink();
+                    else this.tryParseSubscriptionUrl(val.trim());
+                }, 300);
             },
 
             // Check if input looks like a subscription URL
@@ -567,8 +633,9 @@ export const formLogicFn = (t) => {
                 if (customRules) {
                     try {
                         const parsed = JSON.parse(customRules);
-                        if (Array.isArray(parsed) && parsed.length > 0) {
-                            // Dispatch custom event for CustomRules component to listen
+                        if (Array.isArray(parsed)) {
+                            this.customRules = copy(parsed);
+                            // Keep the editor synchronized with imported settings.
                             window.dispatchEvent(new CustomEvent('restore-custom-rules', {
                                 detail: { rules: parsed }
                             }));
@@ -604,11 +671,7 @@ export const formLogicFn = (t) => {
                     this.updateConfigIdInUrl(configId);
                 }
 
-                // Expand advanced options if any advanced settings are present
-                if (selectedRules || customRules || this.groupByCountry || this.enableClashUI ||
-                    externalController || externalUiDownloadUrl || ua || configId) {
-                    this.showAdvanced = true;
-                }
+
             }
         }
     }

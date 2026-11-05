@@ -287,7 +287,9 @@ export const CustomRules = (props) => {
                 if (event.detail && Array.isArray(event.detail.rules)) {
                   this.rules = event.detail.rules;
                   this.jsonContent = JSON.stringify(event.detail.rules, null, 2);
-                  this.mode = 'json'; // Switch to JSON mode to show imported rules
+                  this.mode = event.detail.mode || 'json';
+                  this.jsonError = null;
+                  this.jsonValid = false;
                 }
               });
             },

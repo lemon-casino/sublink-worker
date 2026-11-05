@@ -1,3 +1,5 @@
+import { normalizeShortLinkOrigins } from '../services/shortLinkUrls.js';
+
 /**
  * @typedef {Object} KeyValueStore
  * @property {(key: string) => Promise<string | null>} get
@@ -43,7 +45,8 @@ export function normalizeRuntime(runtime = {}) {
         shortLinkRevocations: runtime.shortLinkRevocations,
         config: {
             configTtlSeconds: runtime.config?.configTtlSeconds ?? DEFAULTS.configTtlSeconds,
-            shortLinkTtlSeconds: runtime.config?.shortLinkTtlSeconds ?? null
+            shortLinkTtlSeconds: runtime.config?.shortLinkTtlSeconds ?? null,
+            shortLinkOrigins: normalizeShortLinkOrigins(runtime.config?.shortLinkOrigins)
         }
     };
 }

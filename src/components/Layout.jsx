@@ -78,6 +78,8 @@ export const Layout = (props) => {
           }
 
           [x-cloak] { display: none !important; }
+          html:has(.advanced-dialog[open]) { overflow: hidden; }
+          .advanced-dialog::backdrop { background: rgba(15, 23, 42, 0.55); backdrop-filter: blur(4px); }
         </style>
         <script>
           function appData() {

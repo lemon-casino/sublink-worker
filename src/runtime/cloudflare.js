@@ -14,7 +14,8 @@ export function createCloudflareRuntime(env) {
         } : undefined,
         config: {
             configTtlSeconds: parseTtl(env?.CONFIG_TTL_SECONDS),
-            shortLinkTtlSeconds: parseTtl(env?.SHORT_LINK_TTL_SECONDS)
+            shortLinkTtlSeconds: parseTtl(env?.SHORT_LINK_TTL_SECONDS),
+            shortLinkOrigins: env?.SHORT_LINK_ORIGINS
         }
     };
 }

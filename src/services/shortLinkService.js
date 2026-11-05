@@ -10,6 +10,7 @@ export class ShortLinkService {
     constructor(kv, options = {}) {
         this.kv = kv;
         this.options = options;
+        this.rotations = new Set();
     }
 
     ensureKv() {
@@ -39,7 +40,12 @@ export class ShortLinkService {
                 queryString = `?${params}`;
             }
             // Callers never choose keys, so concurrent writes cannot target an existing link.
-            await kv.put(key, queryString, putOptions);
+            try {
+                await kv.put(key, queryString, putOptions);
+            } catch (error) {
+                if (baseConfig) await kv.delete(`short-config:${shortCode}`).catch(() => this.options.logger?.error?.('Unable to clean up a short-link snapshot'));
+                throw error;
+            }
             return shortCode;
         }
         throw new ServiceError('Unable to create a short link', 503);
@@ -76,5 +82,41 @@ export class ShortLinkService {
         await kv.delete(`short-config:${code}`);
         if (isSubscriptionQuery(legacy)) await kv.delete(code);
         return true;
+    }
+
+    async rotateShortLink(code) {
+        if (this.rotations.has(code)) throw new ServiceError('Short link is being replaced', 409);
+        this.rotations.add(code);
+        let lease;
+        let replacement;
+        const revocations = this.options.revocations;
+        try {
+            const query = await this.resolveShortCode(code);
+            if (!query) throw new ServiceError('Short link is invalid or expired', 404);
+            if (revocations?.beginRotation) lease = await revocations.beginRotation(code);
+            const params = new URLSearchParams(query);
+            let baseConfig;
+            if (params.get('hasBaseConfig') === 'true') {
+                baseConfig = await this.getBaseConfig(code);
+                if (!baseConfig) throw new ServiceError('Short-link configuration is unavailable', 503);
+            } else if (params.has('configId')) {
+                const id = params.get('configId');
+                const content = await this.options.configStorage?.getConfigById(id);
+                if (!content) throw new ServiceError('Short-link configuration is unavailable', 503);
+                baseConfig = { type: id.split('_')[0], content };
+            }
+            replacement = await this.createShortLink(query, undefined, baseConfig);
+            if (lease) await revocations.completeRotation(code, lease);
+            else if (await this.isRevoked(code)) throw new ServiceError('Short link is no longer active', 410);
+            await this.deleteShortLink(code);
+            return replacement;
+        } catch (error) {
+            // A failed replacement must not leave an undisclosed second subscription active.
+            if (replacement) await this.deleteShortLink(replacement).catch(() => this.options.logger?.error?.('Unable to clean up a failed replacement'));
+            throw error;
+        } finally {
+            if (lease) await revocations.cancelRotation(code, lease).catch(() => this.options.logger?.error?.('Unable to release a replacement lease'));
+            this.rotations.delete(code);
+        }
     }
 }

@@ -11,8 +11,8 @@ export function createRequestSecurity(runtime) {
         c.header('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
 
         if (c.req.path.startsWith('/assets/') || c.req.path.startsWith('/favicon.')) return next();
-        const writing = c.req.method === 'POST';
-        if (writing) {
+        const writing = c.req.method === 'POST' && c.req.path !== '/short-links/inspect';
+        if (c.req.method === 'POST') {
             const origin = c.req.header('Origin');
             if (origin && origin !== new URL(c.req.url).origin) return c.text('Cross-origin writes are not allowed', 403);
             if (!c.req.header('Content-Type')?.toLowerCase().startsWith('application/json')) return c.text('JSON content type is required', 415);

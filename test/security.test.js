@@ -163,10 +163,13 @@ describe('Revocation consistency', () => {
 });
 
 describe('Browser and client defaults', () => {
-    it('loads scripts and styles locally and includes the public deletion form', async () => {
+    it('loads resources locally and reuses source input for short-link management', async () => {
         const response = await createTestApp().request(`${ORIGIN}/`);
         const html = await response.text();
-        expect(html).toContain('delete-short-url');
+        expect(html.includes('id="delete-short-url"')).toBe(false);
+        expect(html.includes('id="primary-action"')).toBe(true);
+        expect(html.includes('id="rotate-short-link"')).toBe(true);
+        expect(html.includes('id="advanced-options-dialog"')).toBe(true);
         expect(html).toContain('deleteShortLink()');
         expect(html).not.toMatch(/<(?:script|link)[^>]+(?:src|href)="https?:\/\//);
         expect(html).not.toContain('x-model="customShortCode"');

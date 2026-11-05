@@ -29,3 +29,6 @@ simple = { limit = 120, period = 60 }
 name = "WRITE_LIMITER"
 namespace_id = "1002"
 simple = { limit = 10, period = 60 }
+
+[vars]
+SHORT_LINK_ORIGINS = "https://sub.lemon.vin,https://sublink-worker.lemon1024.workers.dev"

@@ -14,22 +14,26 @@ import { encodeBase64, tryDecodeSubscriptionLines } from '../utils.js';
 import { APP_NAME, APP_SUBTITLE } from '../constants.js';
 import { ShortLinkService } from '../services/shortLinkService.js';
 import { ConfigStorageService } from '../services/configStorageService.js';
-import { ServiceError, MissingDependencyError } from '../services/errors.js';
+import { ServiceError, MissingDependencyError, InvalidPayloadError } from '../services/errors.js';
 import { normalizeRuntime } from '../runtime/runtimeConfig.js';
 import { createRequestSecurity } from '../services/requestSecurity.js';
 import { fetchSubscriptionWithFormat } from '../parsers/subscription/httpSubscriptionFetcher.js';
+import { parseLocalShortLink } from '../services/shortLinkUrls.js';
 import { PREDEFINED_RULE_SETS, SING_BOX_CONFIG, SING_BOX_CONFIG_V1_11, generateSubconverterConfig } from '../config/index.js';
 
 const DEFAULT_USER_AGENT = 'curl/7.74.0';
 
 export function createApp(bindings = {}) {
     const runtime = normalizeRuntime(bindings);
+    const configStorage = runtime.kv ? new ConfigStorageService(runtime.kv, { configTtlSeconds: runtime.config.configTtlSeconds }) : null;
     const services = {
         shortLinks: runtime.kv ? new ShortLinkService(runtime.kv, {
             shortLinkTtlSeconds: runtime.config.shortLinkTtlSeconds,
-            revocations: runtime.shortLinkRevocations
+            revocations: runtime.shortLinkRevocations,
+            configStorage,
+            logger: runtime.logger
         }) : null,
-        configStorage: runtime.kv ? new ConfigStorageService(runtime.kv, { configTtlSeconds: runtime.config.configTtlSeconds }) : null
+        configStorage
     };
 
     const app = new Hono();
@@ -64,7 +68,7 @@ export function createApp(bindings = {}) {
                                         {subtitle}
                                     </p>
                                 </div>
-                                <Form t={t} lang={lang} />
+                                <Form t={t} lang={lang} shortLinkOrigins={runtime.config.shortLinkOrigins} />
                             </div>
                         </div>
                     </main>
@@ -353,6 +357,9 @@ export function createApp(bindings = {}) {
                 return c.text('A local conversion URL is required', 400);
             }
             const queryString = parsedUrl.search;
+            if (parseLocalShortLink(parsedUrl.searchParams.get('config'), new URL(c.req.url).origin, runtime.config.shortLinkOrigins)) {
+                return c.text('Use short-link replacement for an existing local short link', 400);
+            }
             const configId = parsedUrl.searchParams.get('configId');
             let baseConfig;
             if (configId) {
@@ -378,7 +385,11 @@ export function createApp(bindings = {}) {
 
             const params = new URLSearchParams(originalParam);
             c.set('subscriptionQuery', params);
-            if (params.get('hasBaseConfig') === 'true') c.set('shortBaseConfig', await shortLinks.getBaseConfig(code));
+            if (params.get('hasBaseConfig') === 'true') {
+                const snapshot = await shortLinks.getBaseConfig(code);
+                if (!snapshot) return c.text('Short-link configuration not found', 404);
+                c.set('shortBaseConfig', snapshot);
+            }
             const lang = params.get('lang') || getRequestHeader(c.req, 'Accept-Language')?.split(',')[0] || 'zh-CN';
             c.set('lang', lang);
             c.set('t', createTranslator(lang));
@@ -393,15 +404,39 @@ export function createApp(bindings = {}) {
     app.get('/c/:code', shortLinkHandler('clash'));
     app.get('/x/:code', shortLinkHandler('xray'));
 
+    const managedShortLink = async c => {
+        const { url } = await c.req.json();
+        const link = parseLocalShortLink(url, new URL(c.req.url).origin, runtime.config.shortLinkOrigins);
+        if (!link) throw new InvalidPayloadError('A local short URL is required');
+        return link;
+    };
+
+    app.post('/short-links/inspect', async c => {
+        try {
+            const link = await managedShortLink(c);
+            const shortLinks = requireShortLinkService(services.shortLinks);
+            const query = await shortLinks.resolveShortCode(link.code);
+            if (!query) return c.text('Short link is invalid or expired', 404);
+            if (new URLSearchParams(query).get('hasBaseConfig') === 'true' && !await shortLinks.getBaseConfig(link.code)) {
+                return c.text('Short-link configuration not found', 404);
+            }
+            return c.json({ valid: true });
+        } catch (error) { return handleError(c, error, runtime.logger); }
+    });
+
+    app.post('/short-links/rotate', async c => {
+        try {
+            const link = await managedShortLink(c);
+            const code = await requireShortLinkService(services.shortLinks).rotateShortLink(link.code);
+            return c.json({ code });
+        } catch (error) { return handleError(c, error, runtime.logger); }
+    });
+
     app.post('/short-links/delete', async (c) => {
         try {
-            const { url } = await c.req.json();
-            let parsed;
-            try { parsed = new URL(url); } catch { return c.text('Invalid short URL', 400); }
-            const match = parsed.pathname.match(/^\/[bcxs]\/([A-Za-z0-9_-]{1,128})$/);
-            if (parsed.origin !== new URL(c.req.url).origin || !match) return c.text('A local short URL is required', 400);
+            const link = await managedShortLink(c);
             const shortLinks = requireShortLinkService(services.shortLinks);
-            await shortLinks.deleteShortLink(match[1]);
+            await shortLinks.deleteShortLink(link.code);
             return c.text('Short link deleted');
         } catch (error) {
             return handleError(c, error, runtime.logger);
