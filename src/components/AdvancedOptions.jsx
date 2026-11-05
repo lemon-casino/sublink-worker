@@ -5,8 +5,8 @@ import { CustomRules } from './CustomRules.jsx';
 import { ValidatedTextarea } from './ValidatedTextarea.jsx';
 
 export const AdvancedOptions = ({ t }) => (
-    <dialog id="advanced-options-dialog" x-ref="advancedDialog" class="advanced-dialog m-auto overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 text-gray-900 shadow-2xl dark:border-gray-700 dark:bg-gray-800 dark:text-white" style="width: min(52rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem)" aria-labelledby="advanced-options-title" aria-describedby="advanced-options-help" {...{'x-on:cancel.prevent': '', 'x-on:keydown.escape.stop.prevent': ''}}>
-      <div class="flex flex-col" style="max-height: calc(100dvh - 2rem)">
+    <dialog id="advanced-options-dialog" x-ref="advancedDialog" class="advanced-dialog m-auto overflow-hidden rounded-2xl border border-gray-200 bg-white p-0 text-gray-900 shadow-2xl dark:border-gray-700 dark:bg-gray-800 dark:text-white" style="width: min(52rem, calc(100vw - 2rem)); height: min(46rem, calc(100dvh - 2rem))" aria-labelledby="advanced-options-title" aria-describedby="advanced-options-help" {...{'x-on:cancel.prevent': '', 'x-on:keydown.escape.stop.prevent': ''}}>
+      <div class="flex h-full min-h-0 flex-col">
         <header class="shrink-0 px-6 pb-3 pt-5">
           <h2 id="advanced-options-title" class="text-xl font-semibold">{t('advancedOptions')}</h2>
           <p id="advanced-options-help" class="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('advancedOptionsHelp')}</p>
@@ -19,7 +19,7 @@ export const AdvancedOptions = ({ t }) => (
           <button id="advanced-tab-ua" type="button" role="tab" aria-controls="advanced-panel-ua" x-bind:aria-selected="advancedTab === 'ua'" x-bind:tabindex="advancedTab === 'ua' ? 0 : -1" x-on:click="advancedTab = 'ua'" x-on:keydown="navigateAdvancedTabs($event)" class="shrink-0 border-b-2 px-4 py-3 text-sm font-medium transition-colors" x-bind:class="advancedTab === 'ua' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'">{t('UASettings')}</button>
           <button id="advanced-tab-subconverter" type="button" role="tab" aria-controls="advanced-panel-subconverter" x-bind:aria-selected="advancedTab === 'subconverter'" x-bind:tabindex="advancedTab === 'subconverter' ? 0 : -1" x-on:click="advancedTab = 'subconverter'" x-on:keydown="navigateAdvancedTabs($event)" class="shrink-0 border-b-2 px-4 py-3 text-sm font-medium transition-colors" x-bind:class="advancedTab === 'subconverter' ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'">{t('subconverterConfigTitle')}</button>
         </div>
-        <div class="min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6">
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
           <section id="advanced-panel-rules" role="tabpanel" aria-labelledby="advanced-tab-rules" x-bind:hidden="advancedTab !== 'rules'">
     {/* Rule Selection */ }
     <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
